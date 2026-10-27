@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds a portable Linux release: dist/DiamondRushRecomp/bin/DiamondRushRecomp (+ bundled Java runtime)
-# and archives it to dist/DiamondRushRecomp-<version>-linux-x64.tar.gz
+# and archives it to dist/DiamondRushRecomp-linux-x64.tar.gz
 set -euo pipefail
 version="${1:-0.1.0}"
 root="$(cd "$(dirname "$0")" && pwd)"
@@ -25,5 +25,6 @@ cp build/diamondrush-recomp.jar build/pkg/
     --dest dist
 
 cp LEIA-ME.txt dist/DiamondRushRecomp/
-tar -C dist -czf "dist/DiamondRushRecomp-$version-linux-x64.tar.gz" DiamondRushRecomp
-echo "OK -> dist/DiamondRushRecomp-$version-linux-x64.tar.gz"
+# No version in the name: README links to releases/latest/download/<name> keep working.
+tar -C dist -czf "dist/DiamondRushRecomp-linux-x64.tar.gz" DiamondRushRecomp
+echo "OK -> dist/DiamondRushRecomp-linux-x64.tar.gz"

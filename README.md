@@ -1,5 +1,9 @@
 # DiamondRushRecomp
 
+[![Baixar para Windows](https://img.shields.io/badge/Baixar-Windows%20x64-0078D6?style=for-the-badge&logo=windows)](https://github.com/ricardoshh/DiamondRushRecomp/releases/latest/download/DiamondRushRecomp-windows-x64.zip)
+[![Baixar para Linux](https://img.shields.io/badge/Baixar-Linux%20x64-E95420?style=for-the-badge&logo=linux&logoColor=white)](https://github.com/ricardoshh/DiamondRushRecomp/releases/latest/download/DiamondRushRecomp-linux-x64.tar.gz)
+[![Todas as versões](https://img.shields.io/github/v/release/ricardoshh/DiamondRushRecomp?style=for-the-badge&label=vers%C3%A3o)](https://github.com/ricardoshh/DiamondRushRecomp/releases)
+
 Port nativo para PC do Diamond Rush (Gameloft, 2006, J2ME). O bytecode original do jogo roda sem
 alterações numa JVM desktop, sobre uma reimplementação própria das APIs `javax.microedition`
 (MIDP 2.0 / CLDC 1.1 / MMAPI / RMS).
@@ -9,8 +13,13 @@ alterações numa JVM desktop, sobre uma reimplementação própria das APIs `ja
 
 ## Download
 
-Baixe o zip do Windows ou o tar.gz do Linux em **Releases**, extraia e coloque o `.jar` do jogo ao
-lado do executável (ou escolha o arquivo quando o programa pedir). O Java já vem incluído.
+1. Clique no botão do seu sistema acima (ou veja todas as versões em
+   [Releases](https://github.com/ricardoshh/DiamondRushRecomp/releases)) e extraia o arquivo.
+2. Abra o `DiamondRushRecomp.exe` (Windows) ou `bin/DiamondRushRecomp` (Linux).
+3. No launcher, clique em **Importar jogo (.jar)** e escolha o seu `.jar` do Diamond Rush.
+4. Clique em **Jogar**.
+
+O Java já vem incluído. Requer placa de vídeo com OpenGL 3.3.
 
 ## Como compilar e rodar
 
@@ -38,7 +47,7 @@ powershell -ExecutionPolicy Bypass -File package.ps1 -Version 0.1.0
 ```
 
 Gera `dist\DiamondRushRecomp\DiamondRushRecomp.exe` com um Java reduzido embutido (~48 MB) e o zip
-`dist\DiamondRushRecomp-0.1.0-windows-x64.zip`. No Linux: `./package.sh 0.1.0`.
+`dist\DiamondRushRecomp-windows-x64.zip`. No Linux: `./package.sh 0.1.0`.
 
 O GitHub Actions (`.github/workflows/release.yml`) compila Windows e Linux a cada push. Para
 publicar uma release, crie e envie uma tag:

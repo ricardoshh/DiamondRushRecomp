@@ -1,5 +1,5 @@
 # Builds a portable Windows release: dist\DiamondRushRecomp\DiamondRushRecomp.exe (+ bundled Java runtime)
-# and zips it to dist\DiamondRushRecomp-<version>-windows-x64.zip
+# and zips it to dist\DiamondRushRecomp-windows-x64.zip
 #
 # -GameJar <path>  PERSONAL build: embeds your own copy of the game inside the app, so the exe runs
 #                  without asking for the file. Never publish that zip: it contains Gameloft's game.
@@ -37,7 +37,8 @@ if ($LASTEXITCODE -ne 0) { throw 'jpackage failed' }
 
 Copy-Item (Join-Path $root 'LEIA-ME.txt') (Join-Path $dist 'DiamondRushRecomp')
 $suffix = if ($GameJar) { '-PESSOAL-nao-distribuir' } else { '' }
-$zip = Join-Path $dist "DiamondRushRecomp-$Version-windows-x64$suffix.zip"
+# No version in the name: README links to releases/latest/download/<name> keep working.
+$zip = Join-Path $dist "DiamondRushRecomp-windows-x64$suffix.zip"
 Compress-Archive -Path (Join-Path $dist 'DiamondRushRecomp') -DestinationPath $zip
 Write-Host "OK -> $zip"
 if ($GameJar) { Write-Warning 'Build pessoal com o jogo embutido: NAO publique este zip (contem o jogo da Gameloft).' }
