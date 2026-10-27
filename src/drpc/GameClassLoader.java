@@ -19,6 +19,7 @@ import org.objectweb.asm.Opcodes;
  *  - Class.getResourceAsStream(String) -> Runtime.classResource(Class, String).
  *    On a phone every class reads from the MIDlet jar; the game even calls it on
  *    "".getClass(), which on desktop Java would look in the JDK and return null.
+ *  - System.currentTimeMillis / Thread.sleep / Thread.yield -> GameClock (game speed, pause).
  *
  * Resources are handed out as fully buffered streams: phone VMs return whole reads/skips
  * from jar resources and the game relies on that, while a desktop inflater stream may not.
@@ -57,6 +58,16 @@ final class GameClassLoader extends URLClassLoader {
                                 && mname.equals("getResourceAsStream")) {
                             super.visitMethodInsn(Opcodes.INVOKESTATIC, "drpc/Runtime", "classResource",
                                     "(Ljava/lang/Class;Ljava/lang/String;)Ljava/io/InputStream;", false);
+                            return;
+                        }
+                        if (op == Opcodes.INVOKESTATIC && owner.equals("java/lang/System")
+                                && mname.equals("currentTimeMillis")) {
+                            super.visitMethodInsn(op, "drpc/GameClock", "millis", mdesc, false);
+                            return;
+                        }
+                        if (op == Opcodes.INVOKESTATIC && owner.equals("java/lang/Thread")
+                                && (mname.equals("yield") || (mname.equals("sleep") && mdesc.equals("(J)V")))) {
+                            super.visitMethodInsn(op, "drpc/GameClock", mname, mdesc, false);
                             return;
                         }
                         super.visitMethodInsn(op, owner, mname, mdesc, itf);

@@ -7,12 +7,12 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 import javax.imageio.ImageIO;
-import javax.microedition.lcdui.Display;
 
 /**
  * Optional debug helpers, enabled with system properties:
  *  -Ddrpc.dump=dir        saves the presented frame as PNG once per second
- *  -Ddrpc.keys=script     plays phone keys, e.g. "4000:-5,1500:-5,500:-1" (delay ms : key code)
+ *  -Ddrpc.keys=script     plays phone keys, e.g. "4000:-5,1500:p-5" (delay ms : key code; p = from gamepad,
+ *                         -1000 = options menu)
  */
 final class Debug {
 
@@ -40,6 +40,25 @@ final class Debug {
         }
     }
 
+    /** With drpc.dump set, also saves the whole window (menu, legend, background) once per second. */
+    static void startWindowDump(javax.swing.JComponent window) {
+        if (DUMP == null) {
+            return;
+        }
+        int[] n = {0};
+        new javax.swing.Timer(1000, e -> {
+            BufferedImage img = new BufferedImage(window.getWidth(), window.getHeight(), BufferedImage.TYPE_INT_RGB);
+            java.awt.Graphics2D g = img.createGraphics();
+            window.paint(g);
+            g.dispose();
+            try {
+                ImageIO.write(img, "png", DUMP.resolve(String.format("win%03d.png", n[0]++)).toFile());
+            } catch (IOException ex) {
+                ex.printStackTrace();
+            }
+        }).start();
+    }
+
     static void startKeyScript() {
         String script = System.getProperty("drpc.keys");
         if (script == null || script.isBlank()) {
@@ -50,11 +69,14 @@ final class Debug {
                 for (String step : script.split(",")) {
                     String[] p = step.trim().split(":");
                     Thread.sleep(Long.parseLong(p[0]));
-                    int code = Integer.parseInt(p[1]);
-                    System.out.println("[debug] key " + code);
-                    Runtime.runOnEventThread(() -> Display.keyEvent(code, 0));
+                    // "p" prefix = the key comes from a gamepad (e.g. "500:p-5")
+                    boolean pad = p[1].startsWith("p");
+                    int code = Integer.parseInt(pad ? p[1].substring(1) : p[1]);
+                    Input.Device dev = pad ? Input.Device.GAMEPAD : Input.Device.KEYBOARD;
+                    System.out.println("[debug] key " + code + (pad ? " (pad)" : ""));
+                    Runtime.runOnEventThread(() -> Input.press(code, dev));
                     Thread.sleep(120);
-                    Runtime.runOnEventThread(() -> Display.keyEvent(code, 1));
+                    Runtime.runOnEventThread(() -> Input.release(code));
                 }
             } catch (InterruptedException ignored) {
                 // stop

@@ -76,6 +76,7 @@ public final class Runtime {
 
     public static void setMasterVolume(int v) {
         masterVolume = Math.max(0, Math.min(100, v));
+        MidiPlayer.refreshVolumeAll();
     }
 
     public static void exit() {

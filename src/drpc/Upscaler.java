@@ -1,11 +1,15 @@
 package drpc;
 
+import java.awt.BasicStroke;
+import java.awt.Color;
+import java.awt.GradientPaint;
 import java.awt.Graphics2D;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferInt;
 
-/** Scales the 240x320 phone frame to the window with a selectable filter. */
+/** Scales the 240x320 phone frame to the window with a selectable filter and background. */
 final class Upscaler {
 
     enum Filter {
@@ -41,38 +45,78 @@ final class Upscaler {
         }
     }
 
+    /** What fills the area around the 3:4 picture (fullscreen / wide windows). */
+    enum Background {
+        BLACK("black", "Preto"),
+        BLUR("blur", "Desfoque do jogo"),
+        FRAME("frame", "Moldura");
+
+        final String id;
+        final String label;
+
+        Background(String id, String label) {
+            this.id = id;
+            this.label = label;
+        }
+
+        static Background fromId(String id) {
+            for (Background b : values()) {
+                if (b.id.equalsIgnoreCase(id)) {
+                    return b;
+                }
+            }
+            return BLUR;
+        }
+
+        Background next(int dir) {
+            Background[] all = values();
+            return all[(ordinal() + dir + all.length) % all.length];
+        }
+    }
+
+    private static final Color FRAME_GOLD = new Color(0xC9A227);
+
     private final int srcW;
     private final int srcH;
     private BufferedImage filtered;   // output of ScaleNx
     private BufferedImage prescaled;  // intermediate 2x step of Scale4x
     private BufferedImage sharpBuf;   // nearest-neighbour integer prescale for "sharp" output
+    private final BufferedImage[] blurSteps = new BufferedImage[4];
 
     Upscaler(int srcW, int srcH) {
         this.srcW = srcW;
         this.srcH = srcH;
     }
 
-    /** Draws src into the area (w, h) of g, centered and aspect-correct. */
-    void draw(Graphics2D g, BufferedImage src, Filter filter, int w, int h) {
-        if (filter == Filter.PIXEL) {
-            int k = Math.min(w / srcW, h / srcH);
-            if (k >= 1) {
-                drawNearest(g, src, (w - srcW * k) / 2, (h - srcH * k) / 2, srcW * k, srcH * k);
-                return;
+    /**
+     * Draws src into the area (w, h) of g, centered and aspect-correct, over the chosen background.
+     * Returns where the picture landed.
+     */
+    Rectangle draw(Graphics2D g, BufferedImage src, Filter filter, Background bg, int w, int h) {
+        Rectangle r = pictureRect(filter, w, h);
+        if (bg == Background.FRAME) {
+            // leave room for the bezel
+            int t = Math.max(6, r.height / 36);
+            if (r.height + 2 * t > h && filter != Filter.PIXEL) {
+                double s = (double) (h - 2 * t) / r.height;
+                r = centered((int) (r.width * s), h - 2 * t, w, h);
             }
-            filter = Filter.SHARP; // window smaller than 1x
+        }
+        if (bg != Background.BLACK && (r.width < w || r.height < h)) {
+            drawBlur(g, src, w, h);
+            if (bg == Background.FRAME) {
+                drawFrame(g, r);
+            }
         }
 
-        double s = Math.min((double) w / srcW, (double) h / srcH);
-        int dw = (int) Math.round(srcW * s);
-        int dh = (int) Math.round(srcH * s);
-        int dx = (w - dw) / 2;
-        int dy = (h - dh) / 2;
-
+        if (filter == Filter.PIXEL && r.width % srcW == 0 && r.height % srcH == 0) {
+            drawNearest(g, src, r.x, r.y, r.width, r.height);
+            return r;
+        }
         if (filter == Filter.SMOOTH) {
             g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            g.drawImage(src, dx, dy, dw, dh, null);
-            return;
+            g.drawImage(src, r.x, r.y, r.width, r.height, null);
+            return r;
         }
 
         BufferedImage img = src;
@@ -84,7 +128,63 @@ final class Upscaler {
             prescaled = scale2x(src, prescaled);
             img = filtered = scale2x(prescaled, filtered);
         }
-        drawSharp(g, img, dx, dy, dw, dh);
+        drawSharp(g, img, r.x, r.y, r.width, r.height);
+        return r;
+    }
+
+    private Rectangle pictureRect(Filter filter, int w, int h) {
+        if (filter == Filter.PIXEL) {
+            int k = Math.min(w / srcW, h / srcH);
+            if (k >= 1) {
+                return centered(srcW * k, srcH * k, w, h);
+            }
+        }
+        double s = Math.min((double) w / srcW, (double) h / srcH);
+        return centered((int) Math.round(srcW * s), (int) Math.round(srcH * s), w, h);
+    }
+
+    private static Rectangle centered(int dw, int dh, int w, int h) {
+        return new Rectangle((w - dw) / 2, (h - dh) / 2, dw, dh);
+    }
+
+    /** Heavily blurred, darkened copy of the game covering the whole area. */
+    private void drawBlur(Graphics2D g, BufferedImage src, int w, int h) {
+        BufferedImage cur = src;
+        for (int i = 0; i < blurSteps.length; i++) {
+            int bw = Math.max(1, cur.getWidth() / 2);
+            int bh = Math.max(1, cur.getHeight() / 2);
+            blurSteps[i] = target(blurSteps[i], bw, bh);
+            Graphics2D sg = blurSteps[i].createGraphics();
+            sg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            sg.drawImage(cur, 0, 0, bw, bh, null);
+            sg.dispose();
+            cur = blurSteps[i];
+        }
+        // cover (crop) rather than fit
+        double s = Math.max((double) w / cur.getWidth(), (double) h / cur.getHeight());
+        int cw = (int) Math.ceil(cur.getWidth() * s);
+        int ch = (int) Math.ceil(cur.getHeight() * s);
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+        g.drawImage(cur, (w - cw) / 2, (h - ch) / 2, cw, ch, null);
+        g.setColor(new Color(0, 0, 0, 150));
+        g.fillRect(0, 0, w, h);
+    }
+
+    /** A simple handheld-style bezel around the picture. */
+    private static void drawFrame(Graphics2D g, Rectangle r) {
+        int t = Math.max(6, r.height / 36);
+        int arc = t * 3;
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setColor(new Color(0, 0, 0, 120));
+        g.fillRoundRect(r.x - t - t / 2, r.y - t + t / 2, r.width + 3 * t, r.height + 2 * t + t / 2, arc, arc);
+        g.setPaint(new GradientPaint(0, r.y - t, new Color(0x3A3B40), 0, r.y + r.height + t, new Color(0x16171A)));
+        g.fillRoundRect(r.x - t, r.y - t, r.width + 2 * t, r.height + 2 * t, arc, arc);
+        g.setColor(FRAME_GOLD);
+        g.setStroke(new BasicStroke(Math.max(1.5f, t / 4f)));
+        g.drawRoundRect(r.x - t / 2, r.y - t / 2, r.width + t, r.height + t, arc / 2, arc / 2);
+        g.setColor(Color.BLACK);
+        g.fillRect(r.x - 1, r.y - 1, r.width + 2, r.height + 2);
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
     }
 
     /**

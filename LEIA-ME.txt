@@ -19,6 +19,9 @@ Controle: D-pad/analogico = direcional   A = OK   B = voltar
           Start = soft esquerda   Back/Select = soft direita
           X = 7   Y = 9   LB = *   RB = #   LT = 0   RT = 5
 
+F12 ou Tab (controle: Guide ou Back+Start) = menu de opcoes
+  (arquivo do jogo, filtro, fundo/moldura, tela cheia, tamanho da janela,
+   velocidade, volume, icones de botoes)
 F10 = trocar filtro de imagem (Shift+F10 volta)
 F11, Alt+Enter ou duplo clique = tela cheia
 

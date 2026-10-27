@@ -35,6 +35,8 @@ public final class MidiPlayer implements Player, VolumeControl {
         return t;
     });
 
+    private static final List<MidiPlayer> LIVE = new CopyOnWriteArrayList<>();
+
     private final byte[] data;
     private final List<PlayerListener> listeners = new CopyOnWriteArrayList<>();
     private Sequencer sequencer;
@@ -76,6 +78,7 @@ public final class MidiPlayer implements Player, VolumeControl {
             sequencer.setSequence(seq);
             sequencer.getTransmitter().setReceiver(new VolumeReceiver(out));
             sequencer.addMetaEventListener(this::onMeta);
+            LIVE.add(this);
         } catch (Exception e) {
             throw new MediaException(e.toString());
         }
@@ -137,6 +140,7 @@ public final class MidiPlayer implements Player, VolumeControl {
             sequencer.close();
             allNotesOff();
         }
+        LIVE.remove(this);
         state = CLOSED;
         fire(PlayerListener.CLOSED, null);
     }
@@ -158,6 +162,37 @@ public final class MidiPlayer implements Player, VolumeControl {
     private void fire(String event, Object data) {
         for (PlayerListener l : listeners) {
             EVENTS.execute(() -> l.playerUpdate(this, event, data));
+        }
+    }
+
+    /** Freezes every playing song (options menu open). */
+    static void pauseAll() {
+        for (MidiPlayer p : LIVE) {
+            synchronized (p) {
+                if (p.state == STARTED) {
+                    p.sequencer.stop();
+                }
+            }
+        }
+        allNotesOff();
+    }
+
+    static void resumeAll() {
+        for (MidiPlayer p : LIVE) {
+            synchronized (p) {
+                if (p.state == STARTED) {
+                    p.sequencer.start();
+                }
+            }
+        }
+    }
+
+    /** Re-applies volume after the master volume changed. */
+    static void refreshVolumeAll() {
+        for (MidiPlayer p : LIVE) {
+            synchronized (p) {
+                p.applyVolume();
+            }
         }
     }
 

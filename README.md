@@ -51,6 +51,15 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
+### Build pessoal com o jogo embutido
+
+```bash
+powershell -ExecutionPolicy Bypass -File package.ps1 -Version 0.2.0 -GameJar DiamondRush_s40v3a-N6233.jar
+```
+
+O exe abre direto, sem pedir o arquivo. O zip sai com `PESSOAL-nao-distribuir` no nome: ele contém
+o jogo da Gameloft e **não pode ser publicado** nas releases. O GitHub Actions nunca gera esse tipo.
+
 ## Controles
 
 | Teclado | Controle | Celular |
@@ -62,36 +71,63 @@ git push origin v0.1.0
 | 0–9 (teclado ou numpad) | X = 7, Y = 9, LT = 0, RT = 5 | Teclas numéricas |
 | numpad `*` / `/` | LB / RB | `*` e `#` |
 
-| Tecla | Função |
-|---|---|
-| F10 / Shift+F10 | Trocar filtro de imagem |
-| F11 / Alt+Enter / duplo clique | Tela cheia (sem bordas) |
+| Teclado | Controle | Função |
+|---|---|---|
+| F12 / Tab | Guide ou Back+Start | Menu de opções |
+| F10 / Shift+F10 | — | Trocar filtro de imagem |
+| F11 / Alt+Enter / duplo clique | — | Tela cheia (sem bordas) |
 
 O controle é lido via GLFW, que já reconhece Xbox, PlayStation, Switch Pro e muitos genéricos.
 Para outros controles, coloque um `gamecontrollerdb.txt` (formato SDL) ao lado do launcher.
 
-### Filtros de imagem
+O jogo detecta o último dispositivo usado (teclado ou controle). Quando há espaço ao lado da imagem,
+uma legenda mostra os botões desse dispositivo, com ícones de teclado, Xbox ou PlayStation.
 
-| Filtro | Resultado |
+## Menu de opções
+
+Abra com F12 (ou Guide / Back+Start). O jogo fica congelado, inclusive a música, enquanto o menu
+está aberto.
+
+| Opção | O que faz |
 |---|---|
-| `pixel` | Escala inteira, pixels perfeitos, com bordas pretas |
-| `sharp` (padrão) | Preenche a tela mantendo os pixels nítidos (prescale inteiro + bilinear) |
-| `smooth` | Bilinear, mais suave |
-| `scale2x`, `scale3x`, `scale4x` | Suavizam diagonais e contornos de pixel art (AdvMAME) |
+| Arquivo do jogo | Escolhe outro `.jar` e reinicia |
+| Filtro de imagem | Pixel perfect, Nítido, Suave, Scale2x/3x/4x |
+| Fundo / bordas | Preto, Desfoque do jogo ou Moldura em volta da imagem 3:4 |
+| Tela cheia | Liga/desliga a tela cheia sem bordas |
+| Tamanho da janela | 1x, 2x, 3x... (fora da tela cheia) |
+| Velocidade do jogo | 50% a 200% da velocidade original |
+| Volume | 0–100% |
+| Ícones de botões | Automático, Teclado, Xbox ou PlayStation |
+| Controles na lateral | Mostra/oculta a legenda de botões |
+
+### Limitações conhecidas
+
+- **60/120 fps:** o jogo original roda a 20 quadros por segundo fixos, com lógica e desenho
+  presos ao mesmo tick. Aumentar a taxa acelera o jogo inteiro (é o que a opção de velocidade faz).
+  Movimento realmente mais fluido exige interpolar as posições dos sprites dentro do código do jogo.
+- **16:9 / 4:3 nativo:** a resolução 240x320 está fixa em ~160 pontos do código, e o mapa é
+  desenhado num buffer de 240 px. Trocar só as constantes não funciona (testado). Por enquanto, a
+  tela cheia usa fundo desfocado ou moldura em volta da imagem original.
+- **Ícones dentro do jogo:** as dicas do tutorial (teclas 4, 6, 2, 8) são sprites do próprio jogo.
+  A legenda lateral mostra os botões certos; substituir os sprites é um passo futuro.
 
 ## Configurações
 
-O `settings.properties` é criado na primeira execução e guarda o filtro, a tela cheia, o caminho
-do jar e o mapeamento dos botões do controle.
+O `settings.properties` é criado na primeira execução. Tudo o que o menu altera fica salvo nele, e
+também o mapeamento dos botões do controle.
 
 Os saves (RMS) ficam em `saves\`. Na versão empacotada, os erros vão para `log.txt`.
+
 ## Como funciona
 
 | Parte | Arquivos |
 |---|---|
 | Launcher: lê o manifest, carrega o jar e inicia o MIDlet | `src/drpc/Launcher.java` |
 | Carregamento + patches de bytecode (ASM) | `src/drpc/GameClassLoader.java` |
-| Janela, tela cheia e teclado | `src/drpc/Screen.java` |
+| Janela, tela cheia, legenda e teclado | `src/drpc/Screen.java` |
+| Menu de opções | `src/drpc/OptionsMenu.java` |
+| Ícones de botões (teclado, Xbox, PlayStation) | `src/drpc/Glyphs.java` |
+| Relógio do jogo (velocidade, pausa) | `src/drpc/GameClock.java` |
 | Filtros de upscaling | `src/drpc/Upscaler.java` |
 | Controle (GLFW) e junção das entradas | `src/drpc/Gamepad.java`, `src/drpc/Input.java` |
 | Configurações | `src/drpc/Settings.java` |
@@ -103,6 +139,8 @@ Os saves (RMS) ficam em `saves\`. Na versão empacotada, os erros vão para `log
 
 - `Class.getResourceAsStream` → `drpc.Runtime.classResource`. O jogo carrega recursos via
   `"string".getClass()`, que no celular lê do jar do jogo, mas no desktop retornaria `null`.
+- `System.currentTimeMillis`, `Thread.sleep` e `Thread.yield` → `drpc.GameClock`, para controlar a
+  velocidade e congelar o jogo com o menu aberto.
 
 ## Depuração
 

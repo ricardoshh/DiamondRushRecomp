@@ -42,6 +42,7 @@ final class Gamepad implements Runnable {
     private final int leftTrigger;
     private final int rightTrigger;
     private final float deadzone;
+    private static volatile Gamepad mapping;
 
     private Gamepad(Settings s, Screen screen) {
         this.screen = screen;
@@ -52,9 +53,11 @@ final class Gamepad implements Runnable {
         buttonMap[GLFW_GAMEPAD_BUTTON_DPAD_DOWN] = Input.DOWN;
         buttonMap[GLFW_GAMEPAD_BUTTON_DPAD_LEFT] = Input.LEFT;
         buttonMap[GLFW_GAMEPAD_BUTTON_DPAD_RIGHT] = Input.RIGHT;
+        buttonMap[GLFW_GAMEPAD_BUTTON_GUIDE] = Input.MENU;
         leftTrigger = Input.parse(s.get("pad.lt", "none"));
         rightTrigger = Input.parse(s.get("pad.rt", "none"));
         deadzone = Math.max(0.1f, Math.min(0.9f, s.getFloat("pad.deadzone", 0.5f)));
+        mapping = this;
     }
 
     static void start(Settings s, Screen screen) {
@@ -91,6 +94,9 @@ final class Gamepad implements Runnable {
                         String name = pad ? glfwGetGamepadName(jid) : null;
                         System.out.println("[drpc] gamepad " + jid + (pad ? " connected: " + name : " disconnected"));
                         screen.showToast(pad ? "Controle conectado: " + name : "Controle desconectado");
+                        if (pad) {
+                            SwingUtilities.invokeLater(() -> Input.setPadName(name));
+                        }
                     }
                     if (pad && glfwGetGamepadState(jid, state)) {
                         collect(state, now);
@@ -103,7 +109,7 @@ final class Gamepad implements Runnable {
                     released.removeAll(now);
                     SwingUtilities.invokeLater(() -> {
                         released.forEach(Input::release);
-                        pressed.forEach(Input::press);
+                        pressed.forEach(c -> Input.press(c, Input.Device.GAMEPAD));
                     });
                     previous = now;
                 }
@@ -115,7 +121,15 @@ final class Gamepad implements Runnable {
     }
 
     private void collect(GLFWGamepadState state, Set<Integer> out) {
+        boolean back = state.buttons(GLFW_GAMEPAD_BUTTON_BACK) == GLFW_PRESS;
+        boolean start = state.buttons(GLFW_GAMEPAD_BUTTON_START) == GLFW_PRESS;
+        if (back && start) {
+            out.add(Input.MENU); // Back+Start opens the options menu (for pads without a usable Guide button)
+        }
         for (int b = 0; b <= GLFW_GAMEPAD_BUTTON_LAST; b++) {
+            if (back && start && (b == GLFW_GAMEPAD_BUTTON_BACK || b == GLFW_GAMEPAD_BUTTON_START)) {
+                continue;
+            }
             if (state.buttons(b) == GLFW_PRESS && buttonMap[b] != Input.NONE) {
                 out.add(buttonMap[b]);
             }
@@ -137,6 +151,26 @@ final class Gamepad implements Runnable {
         if (state.axes(GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER) > 0 && rightTrigger != Input.NONE) {
             out.add(rightTrigger);
         }
+    }
+
+    /** Which pad button produces a phone key, as a Glyphs id ("a", "lb", "start"...), or null. */
+    static String buttonFor(int code) {
+        Gamepad g = mapping;
+        if (g == null) {
+            return null;
+        }
+        for (int b = 0; b < BUTTON_KEYS.length; b++) {
+            if (BUTTON_KEYS[b] != null && g.buttonMap[b] == code) {
+                return BUTTON_KEYS[b].substring(4); // "pad.a" -> "a"
+            }
+        }
+        if (g.leftTrigger == code) {
+            return "lt";
+        }
+        if (g.rightTrigger == code) {
+            return "rt";
+        }
+        return null;
     }
 
     private static void loadExtraMappings() {
