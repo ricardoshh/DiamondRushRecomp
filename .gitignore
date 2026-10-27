@@ -1,9 +1,12 @@
 # Game files are the user's own copy and must never be committed
 *.jar
-!lib/*.jar
 *.jad
 
-# Local tools (portable JDK, decompiler) and outputs
+# Downloaded libraries, local tools (portable JDK, decompiler) and outputs
+lib/
 tools/
 build/
+dist/
 saves/
+settings.properties
+log.txt

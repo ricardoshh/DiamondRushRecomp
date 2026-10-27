@@ -1,0 +1,9 @@
+# Libraries downloaded from Maven Central into lib/ by the build scripts.
+# All of them are bundled into the single launcher jar.
+org/ow2/asm/asm/9.7.1/asm-9.7.1.jar
+org/lwjgl/lwjgl/3.3.4/lwjgl-3.3.4.jar
+org/lwjgl/lwjgl/3.3.4/lwjgl-3.3.4-natives-windows.jar
+org/lwjgl/lwjgl/3.3.4/lwjgl-3.3.4-natives-linux.jar
+org/lwjgl/lwjgl-glfw/3.3.4/lwjgl-glfw-3.3.4.jar
+org/lwjgl/lwjgl-glfw/3.3.4/lwjgl-glfw-3.3.4-natives-windows.jar
+org/lwjgl/lwjgl-glfw/3.3.4/lwjgl-glfw-3.3.4-natives-linux.jar

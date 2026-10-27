@@ -1,0 +1,27 @@
+DiamondRushRecomp
+=================
+
+Este pacote NAO inclui o jogo. Voce precisa do seu proprio .jar do Diamond Rush
+(testado com DiamondRush_s40v3a-N6233.jar, Nokia S40 240x320).
+
+Como jogar
+----------
+1. Coloque o .jar do jogo nesta pasta (Windows: ao lado do DiamondRushRecomp.exe;
+   Linux: dentro de bin/), ou abra o programa e escolha o arquivo quando ele pedir.
+2. Abra o DiamondRushRecomp.exe (Windows) ou bin/DiamondRushRecomp (Linux).
+
+Controles
+---------
+Teclado:  Setas/WASD = direcional   Enter/Espaco = OK (5)
+          Q/F1 = soft esquerda      E/F2/Esc = soft direita
+          0-9, * e # = teclas do celular
+Controle: D-pad/analogico = direcional   A = OK   B = voltar
+          Start = soft esquerda   Back/Select = soft direita
+          X = 7   Y = 9   LB = *   RB = #   LT = 0   RT = 5
+
+F10 = trocar filtro de imagem (Shift+F10 volta)
+F11, Alt+Enter ou duplo clique = tela cheia
+
+Configuracoes ficam em settings.properties (filtro, tela cheia, botoes do controle).
+Saves ficam na pasta saves/. Erros sao registrados em log.txt.
+Controles nao reconhecidos: coloque um gamecontrollerdb.txt (SDL) nesta pasta.

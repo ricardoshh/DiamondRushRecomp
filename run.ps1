@@ -6,7 +6,7 @@ if (-not (Test-Path $java)) { $java = 'java' }
 
 Push-Location $root
 try {
-    $jvmArgs = @('-Dsun.java2d.uiScale=1', '-jar', 'build\diamondrush-pc.jar')
+    $jvmArgs = @('-jar', 'build\diamondrush-recomp.jar')
     if ($GameJar) { $jvmArgs += $GameJar }
     & $java @jvmArgs
 } finally {

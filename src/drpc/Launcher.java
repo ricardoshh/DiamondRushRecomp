@@ -30,13 +30,33 @@ public final class Launcher {
     private Launcher() {
     }
 
+    /**
+     * Folder for settings, saves and the game jar: next to the .exe when packaged with jpackage
+     * (a portable install), otherwise the working directory.
+     */
+    static final Path HOME = System.getProperty("jpackage.app-path") != null
+            ? Paths.get(System.getProperty("jpackage.app-path")).toAbsolutePath().getParent()
+            : Paths.get("").toAbsolutePath();
+
     public static void main(String[] args) throws Exception {
-        Path jar = args.length > 0 ? Paths.get(args[0]) : findGameJar();
+        // We scale the 240x320 image ourselves; keep Windows display scaling from blurring it twice.
+        System.setProperty("sun.java2d.uiScale", "1");
+        if (System.getProperty("jpackage.app-path") != null) {
+            // Packaged builds have no console: keep a log next to the exe for bug reports.
+            java.io.PrintStream log = new java.io.PrintStream(
+                    Files.newOutputStream(HOME.resolve("log.txt")), true, "UTF-8");
+            System.setOut(log);
+            System.setErr(log);
+        }
+        Settings settings = Settings.load(HOME.resolve("settings.properties"));
+
+        Path jar = args.length > 0 ? Paths.get(args[0]) : findGameJar(settings);
         if (jar == null) {
             jar = askForJar();
             if (jar == null) {
                 return;
             }
+            settings.set("game.jar", jar.toAbsolutePath().toString().replace('\\', '/'));
         }
 
         Map<String, String> props = readManifest(jar);
@@ -50,12 +70,13 @@ public final class Launcher {
         System.out.println("[drpc] " + title + " " + props.get("MIDlet-Version") + " -> " + mainClass);
 
         GameClassLoader loader = new GameClassLoader(jar.toUri().toURL(), Launcher.class.getClassLoader());
-        Path saves = Paths.get(System.getProperty("drpc.saves", "saves")).toAbsolutePath();
+        Path saves = HOME.resolve(System.getProperty("drpc.saves", "saves"));
 
         Screen[] holder = new Screen[1];
-        SwingUtilities.invokeAndWait(() -> holder[0] = new Screen(title));
+        SwingUtilities.invokeAndWait(() -> holder[0] = new Screen(title, settings));
         Screen screen = holder[0];
         Runtime.init(loader, props, screen, saves);
+        Gamepad.start(settings, screen);
 
         MIDlet midlet = (MIDlet) loader.loadClass(mainClass).getDeclaredConstructor().newInstance();
         screen.setOnClose(() -> {
@@ -75,10 +96,13 @@ public final class Launcher {
 
     // ---------------------------------------------------------------- jar discovery
 
-    /** Looks for a MIDlet jar next to the launcher / in the working directory. */
-    private static Path findGameJar() throws IOException {
-        Path dir = Paths.get("").toAbsolutePath();
-        try (var files = Files.list(dir)) {
+    /** Uses the jar remembered in settings, else looks for a MIDlet jar in the home folder. */
+    private static Path findGameJar(Settings settings) throws IOException {
+        String remembered = settings.get("game.jar", "");
+        if (!remembered.isEmpty() && Files.exists(Paths.get(remembered))) {
+            return Paths.get(remembered);
+        }
+        try (var files = Files.list(HOME)) {
             for (Path p : (Iterable<Path>) files::iterator) {
                 if (p.toString().toLowerCase().endsWith(".jar") && isMidletJar(p)) {
                     return p;
