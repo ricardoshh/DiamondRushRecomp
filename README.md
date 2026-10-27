@@ -100,6 +100,20 @@ com ~1,4 ms por quadro para montar a imagem do jogo e ~0,15 ms para desenhar na 
 
 Requer uma placa de vídeo com OpenGL 3.3 (praticamente qualquer GPU a partir de 2010).
 
+## Launcher
+
+Ao abrir o programa aparece o launcher:
+
+- **Importar jogo (.jar)**: copia o seu `.jar` para a pasta `games` do programa e mostra o ícone,
+  o nome e a versão do jogo.
+- **Abas Vídeo, Jogo e Controles**: as mesmas opções do menu do jogo, mais o mapeamento de cada
+  botão do controle.
+- **Controles conectados**: lista os controles reconhecidos.
+- **Jogar**: abre o jogo com as configurações escolhidas.
+
+Desmarcando "Mostrar este launcher ao iniciar", o programa abre direto no jogo. Para voltar ao
+launcher, use "Abrir launcher" no menu de opções do jogo (F12).
+
 ## Menu de opções
 
 Abra com F12 (ou Guide / Back+Start). O jogo fica congelado, inclusive a música, enquanto o menu
@@ -144,6 +158,7 @@ Os saves (RMS) ficam em `saves\`. Na versão empacotada, os erros vão para `log
 | Janela OpenGL, vsync, shaders de filtro, tela cheia | `src/drpc/GLWindow.java` |
 | Estado da interface, legenda, mensagens, teclado | `src/drpc/Screen.java` |
 | Interpolação de quadros | `src/drpc/Interpolator.java`, `src/javax/microedition/lcdui/DrawList.java` |
+| Launcher (janela antes do jogo) | `src/drpc/LauncherWindow.java` |
 | Menu de opções | `src/drpc/OptionsMenu.java` |
 | Ícones de botões (teclado, Xbox, PlayStation) | `src/drpc/Glyphs.java` |
 | Relógio do jogo (velocidade, pausa) | `src/drpc/GameClock.java` |

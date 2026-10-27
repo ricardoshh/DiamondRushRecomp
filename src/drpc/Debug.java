@@ -14,6 +14,7 @@ import javax.imageio.ImageIO;
  *  -Ddrpc.keys=script     plays phone keys, e.g. "4000:-5,1500:p-5" (delay ms : key code; p = from gamepad,
  *                         -1000 = options menu; optional third field = hold time in ms)
  *  -Ddrpc.burst=start:count  with drpc.dump, saves every presented frame from start ms on
+ *  -Ddrpc.autoplay=ms     presses Play in the launcher after ms (with drpc.dump it is saved first)
  */
 final class Debug {
 
@@ -37,6 +38,23 @@ final class Debug {
         try {
             Files.createDirectories(DUMP);
             ImageIO.write(frame, "png", DUMP.resolve(String.format("frame%03d.png", dumpIndex++)).toFile());
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /** With drpc.dump set, saves a Swing component (the launcher) as name.png. */
+    static void saveComponent(javax.swing.JComponent c, String name) {
+        if (DUMP == null) {
+            return;
+        }
+        BufferedImage img = new BufferedImage(c.getWidth(), c.getHeight(), BufferedImage.TYPE_INT_RGB);
+        java.awt.Graphics2D g = img.createGraphics();
+        c.paint(g);
+        g.dispose();
+        try {
+            Files.createDirectories(DUMP);
+            ImageIO.write(img, "png", DUMP.resolve(name + ".png").toFile());
         } catch (IOException e) {
             e.printStackTrace();
         }

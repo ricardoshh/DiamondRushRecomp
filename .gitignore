@@ -8,5 +8,6 @@ tools/
 build/
 dist/
 saves/
+games/
 settings.properties
 log.txt

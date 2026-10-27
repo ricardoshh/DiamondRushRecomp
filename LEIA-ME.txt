@@ -6,9 +6,9 @@ Este pacote NAO inclui o jogo. Voce precisa do seu proprio .jar do Diamond Rush
 
 Como jogar
 ----------
-1. Coloque o .jar do jogo nesta pasta (Windows: ao lado do DiamondRushRecomp.exe;
-   Linux: dentro de bin/), ou abra o programa e escolha o arquivo quando ele pedir.
-2. Abra o DiamondRushRecomp.exe (Windows) ou bin/DiamondRushRecomp (Linux).
+1. Abra o DiamondRushRecomp.exe (Windows) ou bin/DiamondRushRecomp (Linux).
+2. No launcher, clique em "Importar jogo (.jar)" e escolha o seu arquivo do jogo.
+3. Ajuste as opcoes se quiser e clique em "Jogar".
 
 Controles
 ---------

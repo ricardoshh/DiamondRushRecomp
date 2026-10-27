@@ -14,6 +14,8 @@ final class Settings {
     private static final String TEMPLATE = String.join("\n",
             "# DiamondRushRecomp settings",
             "#",
+            "# launcher.show: open the launcher window before the game",
+            "launcher.show=true",
             "# video.filter: pixel | sharp | smooth | scale2x | scale3x | scale4x  (F10 cycles in game)",
             "video.filter=sharp",
             "# video.fullscreen: true | false  (F11 / Alt+Enter toggles in game)",

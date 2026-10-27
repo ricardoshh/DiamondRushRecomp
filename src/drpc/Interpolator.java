@@ -3,10 +3,14 @@ package drpc;
 import java.awt.image.BufferedImage;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.function.Function;
 
 import javax.microedition.lcdui.DrawList;
 import javax.microedition.lcdui.Graphics;
@@ -30,6 +34,8 @@ final class Interpolator implements DrawList.Sink {
     /** Largest movement (px per tick) still treated as motion; anything bigger is a cut. */
     private static final int MAX_STEP = 40;
     private static final int TILE = 24;
+    /** Largest movement accepted when pairing a sprite whose animation frame changed. */
+    private static final int ANIM_STEP = 12;
 
     private static final Interpolator INSTANCE = new Interpolator();
 
@@ -161,25 +167,54 @@ final class Interpolator implements DrawList.Sink {
     }
 
     /**
-     * Pairs each sprite of cur with the closest identical sprite of prev. A sprite either stays
-     * put on screen (HUD, player followed by the camera) or moves with the world (scrolling), so
-     * the distance is measured both ways.
+     * Pairs each sprite of cur with the same sprite in prev. A sprite either stays put on screen
+     * (HUD, player followed by the camera) or moves with the world (scrolling), so the distance is
+     * measured both ways.
+     *
+     * First pass: identical image region. Second pass, for what is left: same sprite sheet and size
+     * but another region, i.e. an animation frame change (walking, rolling boulders, animated
+     * tiles). Without it those sprites would step at 20 fps while the scenery glides.
      */
     private void match(DrawList prev, DrawList cur, Ring ring) {
         Image ringImg = ringImage();
         int camX = ring == null ? 0 : ring.dx;
         int camY = ring == null ? 0 : ring.dy;
-        Map<Key, List<DrawList.Cmd>> pool = new HashMap<>();
+        List<DrawList.Cmd> prevSprites = new ArrayList<>();
+        List<DrawList.Cmd> curSprites = new ArrayList<>();
         for (DrawList.Cmd p : prev.cmds) {
             if (p.op == DrawList.REGION && p.source != ringImg) {
-                pool.computeIfAbsent(key(p), k -> new ArrayList<>()).add(p);
+                prevSprites.add(p);
             }
         }
         for (DrawList.Cmd c : cur.cmds) {
-            if (c.op != DrawList.REGION || c.source == ringImg) {
+            if (c.op == DrawList.REGION && c.source != ringImg) {
+                curSprites.add(c);
+            }
+        }
+        Set<DrawList.Cmd> used = Collections.newSetFromMap(new IdentityHashMap<>());
+        pair(prevSprites, curSprites, used, Interpolator::key, camX, camY, MAX_STEP);
+        pair(prevSprites, curSprites, used, Interpolator::looseKey, camX, camY, ANIM_STEP);
+    }
+
+    private static Key looseKey(DrawList.Cmd c) {
+        int[] a = c.a;
+        boolean swap = a[4] >= 4; // rotated by 90/270: width and height swap on screen
+        return new Key(c.source, -1, -1, swap ? a[3] : a[2], swap ? a[2] : a[3], -1);
+    }
+
+    private static void pair(List<DrawList.Cmd> prevSprites, List<DrawList.Cmd> curSprites, Set<DrawList.Cmd> used,
+            Function<DrawList.Cmd, Key> keyOf, int camX, int camY, int maxResidual) {
+        Map<Key, List<DrawList.Cmd>> pool = new HashMap<>();
+        for (DrawList.Cmd p : prevSprites) {
+            if (!used.contains(p)) {
+                pool.computeIfAbsent(keyOf.apply(p), k -> new ArrayList<>()).add(p);
+            }
+        }
+        for (DrawList.Cmd c : curSprites) {
+            if (c.matched) {
                 continue;
             }
-            List<DrawList.Cmd> candidates = pool.get(key(c));
+            List<DrawList.Cmd> candidates = pool.get(keyOf.apply(c));
             if (candidates == null || candidates.isEmpty()) {
                 continue;
             }
@@ -197,10 +232,11 @@ final class Interpolator implements DrawList.Sink {
             }
             DrawList.Cmd p = candidates.get(best);
             if (Math.abs(p.x - c.x) <= MAX_STEP + Math.abs(camX) && Math.abs(p.y - c.y) <= MAX_STEP + Math.abs(camY)
-                    && bestDist <= MAX_STEP) {
+                    && bestDist <= maxResidual) {
                 c.matched = true;
                 c.prevX = p.x;
                 c.prevY = p.y;
+                used.add(p);
                 candidates.remove(best);
             }
         }

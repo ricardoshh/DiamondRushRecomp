@@ -28,10 +28,10 @@ import javax.swing.Timer;
  */
 final class Screen implements Input.Listener {
 
-    private static final int[] SPEEDS = {50, 75, 100, 125, 150, 200};
-    private static final int[] FPS = {20, 60, 120, 144, 240};
-    private static final String[] GLYPH_PREFS = {"auto", "keyboard", "xbox", "playstation"};
-    private static final String[] GLYPH_LABELS = {"Automático", "Teclado", "Xbox", "PlayStation"};
+    static final int[] SPEEDS = {50, 75, 100, 125, 150, 200};
+    static final int[] FPS = {20, 60, 120, 144, 240};
+    static final String[] GLYPH_PREFS = {"auto", "keyboard", "xbox", "playstation"};
+    static final String[] GLYPH_LABELS = {"Automático", "Teclado", "Xbox", "PlayStation"};
 
     private final Settings settings;
     private final String title;
@@ -131,6 +131,7 @@ final class Screen implements Input.Listener {
             legend = !legend;
             settings.set("input.legend", String.valueOf(legend));
         });
+        menu.action("Abrir launcher", null, () -> Launcher.relaunch("--launcher"));
         menu.action("Sair do jogo", null, () -> onClose.run());
     }
 
@@ -385,7 +386,7 @@ final class Screen implements Input.Listener {
 
     // ---------------------------------------------------------------- window size / game file
 
-    private int maxWindowScale() {
+    static int maxWindowScale() {
         Dimension desktop = Toolkit.getDefaultToolkit().getScreenSize();
         return Math.max(1, Math.min((desktop.height - 120) / Runtime.SCREEN_H, (desktop.width - 40) / Runtime.SCREEN_W));
     }

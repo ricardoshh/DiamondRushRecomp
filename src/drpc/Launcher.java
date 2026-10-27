@@ -55,7 +55,22 @@ public final class Launcher {
         }
         Settings settings = Settings.load(HOME.resolve(System.getProperty("drpc.settings", "settings.properties")));
 
-        Path jar = args.length > 0 ? Paths.get(args[0]) : findGameJar(settings);
+        String jarArg = null;
+        boolean forceLauncher = false;
+        for (String a : args) {
+            if (a.equals("--launcher")) {
+                forceLauncher = true;
+            } else if (!a.startsWith("--")) {
+                jarArg = a;
+            }
+        }
+        if (jarArg == null && (forceLauncher || settings.getBool("launcher.show", true))) {
+            if (!LauncherWindow.showAndWait(settings)) {
+                System.exit(0);
+            }
+        }
+
+        Path jar = jarArg != null ? Paths.get(jarArg) : findGameJar(settings);
         if (jar == null) {
             jar = askForJar();
             if (jar == null) {
@@ -106,11 +121,22 @@ public final class Launcher {
      * Finds the game: the jar chosen in settings, else one embedded in a personal build
      * (game.bin next to our own jar, see package.ps1 -GameJar), else any MIDlet jar in the home folder.
      */
-    private static Path findGameJar(Settings settings) throws IOException {
+    private static Path findGameJar(Settings settings) {
         String remembered = settings.get("game.jar", "");
-        if (!remembered.isEmpty() && Files.exists(Paths.get(remembered))) {
-            return Paths.get(remembered);
+        if (!remembered.isEmpty()) {
+            Path p = Paths.get(remembered);
+            if (!p.isAbsolute()) {
+                p = HOME.resolve(p); // imported games live in HOME/games
+            }
+            if (Files.isRegularFile(p)) {
+                return p;
+            }
         }
+        return findEmbeddedOrLocalJar();
+    }
+
+    /** A game embedded in a personal build, else any MIDlet jar in the home folder. */
+    static Path findEmbeddedOrLocalJar() {
         try {
             Path own = Paths.get(Launcher.class.getProtectionDomain().getCodeSource().getLocation().toURI());
             // not named .jar: jpackage would put it on the app classpath and bypass GameClassLoader
@@ -127,11 +153,13 @@ public final class Launcher {
                     return p;
                 }
             }
+        } catch (IOException ignored) {
+            // unreadable folder: no local game
         }
         return null;
     }
 
-    private static boolean isMidletJar(Path p) {
+    static boolean isMidletJar(Path p) {
         try {
             return readManifest(p).containsKey("MIDlet-1");
         } catch (IOException e) {
@@ -162,12 +190,13 @@ public final class Launcher {
     }
 
     /** Starts a fresh copy of this program (same command and JVM options, minus a jar argument) and exits. */
-    static void relaunch() {
+    static void relaunch(String... extraArgs) {
         ProcessHandle.Info info = ProcessHandle.current().info();
         List<String> cmd = new ArrayList<>();
         cmd.add(info.command().orElseThrow());
         String[] a = info.arguments().orElse(new String[0]);
         cmd.addAll(Arrays.asList(a).subList(0, Math.max(0, a.length - appArgCount)));
+        cmd.addAll(Arrays.asList(extraArgs));
         try {
             new ProcessBuilder(cmd).inheritIO().start();
         } catch (IOException e) {
@@ -177,7 +206,7 @@ public final class Launcher {
         System.exit(0);
     }
 
-    private static Map<String, String> readManifest(Path jar) throws IOException {
+    static Map<String, String> readManifest(Path jar) throws IOException {
         Map<String, String> props = new HashMap<>();
         try (JarFile jf = new JarFile(jar.toFile())) {
             Manifest mf = jf.getManifest();
