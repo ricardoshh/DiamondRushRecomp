@@ -11,16 +11,15 @@ import java.util.Set;
 
 import javax.swing.SwingUtilities;
 
-import org.lwjgl.glfw.GLFWErrorCallback;
 import org.lwjgl.glfw.GLFWGamepadState;
 import org.lwjgl.system.MemoryUtil;
 
 /**
  * Gamepad input through GLFW, which ships the SDL controller database (Xbox, PlayStation,
- * Switch Pro and many generic pads). Polls all pads on its own thread and feeds phone keys to Input.
+ * Switch Pro and many generic pads). Polled by the render thread each frame; feeds phone keys to Input.
  * An optional gamecontrollerdb.txt next to the launcher adds more mappings.
  */
-final class Gamepad implements Runnable {
+final class Gamepad {
 
     private static final String[] BUTTON_KEYS = new String[GLFW_GAMEPAD_BUTTON_LAST + 1];
 
@@ -60,63 +59,45 @@ final class Gamepad implements Runnable {
         mapping = this;
     }
 
-    static void start(Settings s, Screen screen) {
-        Thread t = new Thread(new Gamepad(s, screen), "gamepad");
-        t.setDaemon(true);
-        t.start();
+    private final boolean[] connected = new boolean[GLFW_JOYSTICK_LAST + 1];
+    private final GLFWGamepadState state = GLFWGamepadState.malloc();
+    private Set<Integer> previous = new HashSet<>();
+
+    /** Created by the render thread after glfwInit (GLFW must be used from that one thread). */
+    static Gamepad create(Settings s, Screen screen) {
+        Gamepad g = new Gamepad(s, screen);
+        loadExtraMappings();
+        return g;
     }
 
-    @Override
-    public void run() {
-        try {
-            GLFWErrorCallback.createPrint(System.err).set();
-            if (!glfwInit()) {
-                System.out.println("[drpc] gamepad support unavailable (glfwInit failed)");
-                return;
+    /** Reads every pad and sends changes to Input. Call once per frame after glfwPollEvents. */
+    void poll() {
+        Set<Integer> now = new HashSet<>();
+        for (int jid = 0; jid <= GLFW_JOYSTICK_LAST; jid++) {
+            boolean pad = glfwJoystickIsGamepad(jid);
+            if (pad != connected[jid]) {
+                connected[jid] = pad;
+                String name = pad ? glfwGetGamepadName(jid) : null;
+                System.out.println("[drpc] gamepad " + jid + (pad ? " connected: " + name : " disconnected"));
+                screen.showToast(pad ? "Controle conectado: " + name : "Controle desconectado");
+                if (pad) {
+                    SwingUtilities.invokeLater(() -> Input.setPadName(name));
+                }
             }
-        } catch (Throwable t) {
-            System.out.println("[drpc] gamepad support unavailable: " + t);
-            return;
+            if (pad && glfwGetGamepadState(jid, state)) {
+                collect(state, now);
+            }
         }
-        System.out.println("[drpc] gamepad support ready (GLFW " + glfwGetVersionString() + ")");
-        loadExtraMappings();
-
-        boolean[] connected = new boolean[GLFW_JOYSTICK_LAST + 1];
-        Set<Integer> previous = new HashSet<>();
-        try (GLFWGamepadState state = GLFWGamepadState.malloc()) {
-            while (true) {
-                glfwPollEvents(); // processes connect / disconnect
-                Set<Integer> now = new HashSet<>();
-                for (int jid = 0; jid <= GLFW_JOYSTICK_LAST; jid++) {
-                    boolean pad = glfwJoystickIsGamepad(jid);
-                    if (pad != connected[jid]) {
-                        connected[jid] = pad;
-                        String name = pad ? glfwGetGamepadName(jid) : null;
-                        System.out.println("[drpc] gamepad " + jid + (pad ? " connected: " + name : " disconnected"));
-                        screen.showToast(pad ? "Controle conectado: " + name : "Controle desconectado");
-                        if (pad) {
-                            SwingUtilities.invokeLater(() -> Input.setPadName(name));
-                        }
-                    }
-                    if (pad && glfwGetGamepadState(jid, state)) {
-                        collect(state, now);
-                    }
-                }
-                if (!now.equals(previous)) {
-                    Set<Integer> pressed = new HashSet<>(now);
-                    pressed.removeAll(previous);
-                    Set<Integer> released = new HashSet<>(previous);
-                    released.removeAll(now);
-                    SwingUtilities.invokeLater(() -> {
-                        released.forEach(Input::release);
-                        pressed.forEach(c -> Input.press(c, Input.Device.GAMEPAD));
-                    });
-                    previous = now;
-                }
-                Thread.sleep(8);
-            }
-        } catch (InterruptedException e) {
-            // shutting down
+        if (!now.equals(previous)) {
+            Set<Integer> pressed = new HashSet<>(now);
+            pressed.removeAll(previous);
+            Set<Integer> released = new HashSet<>(previous);
+            released.removeAll(now);
+            SwingUtilities.invokeLater(() -> {
+                released.forEach(Input::release);
+                pressed.forEach(c -> Input.press(c, Input.Device.GAMEPAD));
+            });
+            previous = now;
         }
     }
 

@@ -82,9 +82,7 @@ public final class Launcher {
         Screen screen = holder[0];
         screen.setGameJar(jar);
         Runtime.init(loader, props, screen, saves);
-        Gamepad.start(settings, screen);
         Interpolator.configure((int) settings.getFloat("video.fps", 60));
-        Interpolator.startPresenter();
 
         MIDlet midlet = (MIDlet) loader.loadClass(mainClass).getDeclaredConstructor().newInstance();
         screen.setOnClose(() -> {
@@ -96,9 +94,8 @@ public final class Launcher {
             System.exit(0);
         });
 
-        java.awt.Image icon = loadIcon(props.get("MIDlet-Icon"));
+        java.awt.image.BufferedImage icon = loadIcon(props.get("MIDlet-Icon"));
         SwingUtilities.invokeAndWait(() -> screen.show(icon));
-        SwingUtilities.invokeLater(() -> Debug.startWindowDump(screen));
         MIDletBridge.start(midlet);
         Debug.startKeyScript();
     }
@@ -193,7 +190,7 @@ public final class Launcher {
         return props;
     }
 
-    private static java.awt.Image loadIcon(String name) {
+    private static java.awt.image.BufferedImage loadIcon(String name) {
         if (name == null) {
             return null;
         }

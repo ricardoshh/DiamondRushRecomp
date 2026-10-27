@@ -6,10 +6,8 @@ import java.awt.GradientPaint;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
-import java.awt.image.BufferedImage;
-import java.awt.image.DataBufferInt;
 
-/** Scales the 240x320 phone frame to the window with a selectable filter and background. */
+/** Image filters and backgrounds, picture layout in the window, and the bezel. The filters run on the GPU (GLWindow). */
 final class Upscaler {
 
     enum Filter {
@@ -76,103 +74,43 @@ final class Upscaler {
 
     private static final Color FRAME_GOLD = new Color(0xC9A227);
 
-    private final int srcW;
-    private final int srcH;
-    private BufferedImage filtered;   // output of ScaleNx
-    private BufferedImage prescaled;  // intermediate 2x step of Scale4x
-    private BufferedImage sharpBuf;   // nearest-neighbour integer prescale for "sharp" output
-    private final BufferedImage[] blurSteps = new BufferedImage[4];
-
-    Upscaler(int srcW, int srcH) {
-        this.srcW = srcW;
-        this.srcH = srcH;
-    }
 
     /**
-     * Draws src into the area (w, h) of g, centered and aspect-correct, over the chosen background.
-     * Returns where the picture landed.
+     * Where the picture goes in a (w, h) window: centered, aspect-correct, integer scale for
+     * "pixel", leaving room for the bezel with the "frame" background.
      */
-    Rectangle draw(Graphics2D g, BufferedImage src, Filter filter, Background bg, int w, int h) {
-        Rectangle r = pictureRect(filter, w, h);
-        if (bg == Background.FRAME) {
-            // leave room for the bezel
-            int t = Math.max(6, r.height / 36);
-            if (r.height + 2 * t > h && filter != Filter.PIXEL) {
-                double s = (double) (h - 2 * t) / r.height;
-                r = centered((int) (r.width * s), h - 2 * t, w, h);
-            }
-        }
-        if (bg != Background.BLACK && (r.width < w || r.height < h)) {
-            drawBlur(g, src, w, h);
-            if (bg == Background.FRAME) {
-                drawFrame(g, r);
-            }
-        }
-
-        if (filter == Filter.PIXEL && r.width % srcW == 0 && r.height % srcH == 0) {
-            drawNearest(g, src, r.x, r.y, r.width, r.height);
-            return r;
-        }
-        if (filter == Filter.SMOOTH) {
-            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            g.drawImage(src, r.x, r.y, r.width, r.height, null);
-            return r;
-        }
-
-        BufferedImage img = src;
-        if (filter.factor == 2) {
-            img = filtered = scale2x(src, filtered);
-        } else if (filter.factor == 3) {
-            img = filtered = scale3x(src, filtered);
-        } else if (filter.factor == 4) {
-            prescaled = scale2x(src, prescaled);
-            img = filtered = scale2x(prescaled, filtered);
-        }
-        drawSharp(g, img, r.x, r.y, r.width, r.height);
-        return r;
-    }
-
-    private Rectangle pictureRect(Filter filter, int w, int h) {
+    static Rectangle layout(Filter filter, Background bg, int w, int h) {
+        int sw = Runtime.SCREEN_W;
+        int sh = Runtime.SCREEN_H;
         if (filter == Filter.PIXEL) {
-            int k = Math.min(w / srcW, h / srcH);
+            int k = Math.min(w / sw, h / sh);
             if (k >= 1) {
-                return centered(srcW * k, srcH * k, w, h);
+                return centered(sw * k, sh * k, w, h);
             }
         }
-        double s = Math.min((double) w / srcW, (double) h / srcH);
-        return centered((int) Math.round(srcW * s), (int) Math.round(srcH * s), w, h);
+        double s = Math.min((double) w / sw, (double) h / sh);
+        Rectangle r = centered((int) Math.round(sw * s), (int) Math.round(sh * s), w, h);
+        if (bg == Background.FRAME) {
+            int t = bezel(r);
+            if (r.height + 2 * t > h) {
+                double k = (double) (h - 2 * t) / r.height;
+                r = centered((int) (r.width * k), h - 2 * t, w, h);
+            }
+        }
+        return r;
     }
 
     private static Rectangle centered(int dw, int dh, int w, int h) {
         return new Rectangle((w - dw) / 2, (h - dh) / 2, dw, dh);
     }
 
-    /** Heavily blurred, darkened copy of the game covering the whole area. */
-    private void drawBlur(Graphics2D g, BufferedImage src, int w, int h) {
-        BufferedImage cur = src;
-        for (int i = 0; i < blurSteps.length; i++) {
-            int bw = Math.max(1, cur.getWidth() / 2);
-            int bh = Math.max(1, cur.getHeight() / 2);
-            blurSteps[i] = target(blurSteps[i], bw, bh);
-            Graphics2D sg = blurSteps[i].createGraphics();
-            sg.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            sg.drawImage(cur, 0, 0, bw, bh, null);
-            sg.dispose();
-            cur = blurSteps[i];
-        }
-        // cover (crop) rather than fit
-        double s = Math.max((double) w / cur.getWidth(), (double) h / cur.getHeight());
-        int cw = (int) Math.ceil(cur.getWidth() * s);
-        int ch = (int) Math.ceil(cur.getHeight() * s);
-        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-        g.drawImage(cur, (w - cw) / 2, (h - ch) / 2, cw, ch, null);
-        g.setColor(new Color(0, 0, 0, 150));
-        g.fillRect(0, 0, w, h);
+    private static int bezel(Rectangle r) {
+        return Math.max(6, r.height / 36);
     }
 
-    /** A simple handheld-style bezel around the picture. */
-    private static void drawFrame(Graphics2D g, Rectangle r) {
-        int t = Math.max(6, r.height / 36);
+    /** A simple handheld-style bezel around the picture (drawn under it). */
+    static void drawFrame(Graphics2D g, Rectangle r) {
+        int t = bezel(r);
         int arc = t * 3;
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setColor(new Color(0, 0, 0, 120));
@@ -185,145 +123,5 @@ final class Upscaler {
         g.setColor(Color.BLACK);
         g.fillRect(r.x - 1, r.y - 1, r.width + 2, r.height + 2);
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
-    }
-
-    /**
-     * "Sharp bilinear": nearest-neighbour upscale by the smallest integer that covers the target,
-     * then bilinear to the final size. Pixels stay crisp without uneven widths.
-     */
-    private void drawSharp(Graphics2D g, BufferedImage img, int dx, int dy, int dw, int dh) {
-        int iw = img.getWidth();
-        int ih = img.getHeight();
-        int k = (int) Math.ceil(Math.max((double) dw / iw, (double) dh / ih));
-        if (k <= 1) {
-            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            g.drawImage(img, dx, dy, dw, dh, null);
-            return;
-        }
-        if (dw == iw * k && dh == ih * k) {
-            drawNearest(g, img, dx, dy, dw, dh);
-            return;
-        }
-        BufferedImage big = sharpBuf = target(sharpBuf, iw * k, ih * k);
-        Graphics2D bg = big.createGraphics();
-        drawNearest(bg, img, 0, 0, iw * k, ih * k);
-        bg.dispose();
-        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-        g.drawImage(big, dx, dy, dw, dh, null);
-    }
-
-    private static void drawNearest(Graphics2D g, BufferedImage img, int dx, int dy, int dw, int dh) {
-        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
-        g.drawImage(img, dx, dy, dw, dh, null);
-    }
-
-    // ---------------------------------------------------------------- AdvMAME Scale2x / Scale3x
-
-    private static int[] pixels(BufferedImage img) {
-        return ((DataBufferInt) img.getRaster().getDataBuffer()).getData();
-    }
-
-    private static BufferedImage target(BufferedImage reuse, int w, int h) {
-        if (reuse != null && reuse.getWidth() == w && reuse.getHeight() == h) {
-            return reuse;
-        }
-        return new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
-    }
-
-    static BufferedImage scale2x(BufferedImage srcImg, BufferedImage reuse) {
-        int w = srcImg.getWidth();
-        int h = srcImg.getHeight();
-        BufferedImage out = target(reuse, w * 2, h * 2);
-        int[] s = pixels(srcImg);
-        int[] d = pixels(out);
-        int ow = w * 2;
-        for (int y = 0; y < h; y++) {
-            int up = (y > 0 ? y - 1 : y) * w;
-            int row = y * w;
-            int down = (y < h - 1 ? y + 1 : y) * w;
-            int o = y * 2 * ow;
-            for (int x = 0; x < w; x++) {
-                int xl = x > 0 ? x - 1 : x;
-                int xr = x < w - 1 ? x + 1 : x;
-                int b = s[up + x];
-                int dd = s[row + xl];
-                int e = s[row + x];
-                int f = s[row + xr];
-                int hh = s[down + x];
-                int e0 = e;
-                int e1 = e;
-                int e2 = e;
-                int e3 = e;
-                if (b != hh && dd != f) {
-                    e0 = dd == b ? dd : e;
-                    e1 = b == f ? f : e;
-                    e2 = dd == hh ? dd : e;
-                    e3 = hh == f ? f : e;
-                }
-                int p = o + x * 2;
-                d[p] = e0;
-                d[p + 1] = e1;
-                d[p + ow] = e2;
-                d[p + ow + 1] = e3;
-            }
-        }
-        return out;
-    }
-
-    static BufferedImage scale3x(BufferedImage srcImg, BufferedImage reuse) {
-        int w = srcImg.getWidth();
-        int h = srcImg.getHeight();
-        BufferedImage out = target(reuse, w * 3, h * 3);
-        int[] s = pixels(srcImg);
-        int[] d = pixels(out);
-        int ow = w * 3;
-        for (int y = 0; y < h; y++) {
-            int up = (y > 0 ? y - 1 : y) * w;
-            int row = y * w;
-            int down = (y < h - 1 ? y + 1 : y) * w;
-            int o = y * 3 * ow;
-            for (int x = 0; x < w; x++) {
-                int xl = x > 0 ? x - 1 : x;
-                int xr = x < w - 1 ? x + 1 : x;
-                int a = s[up + xl];
-                int b = s[up + x];
-                int c = s[up + xr];
-                int dd = s[row + xl];
-                int e = s[row + x];
-                int f = s[row + xr];
-                int g = s[down + xl];
-                int hh = s[down + x];
-                int i = s[down + xr];
-                int e0 = e;
-                int e1 = e;
-                int e2 = e;
-                int e3 = e;
-                int e5 = e;
-                int e6 = e;
-                int e7 = e;
-                int e8 = e;
-                if (b != hh && dd != f) {
-                    e0 = dd == b ? dd : e;
-                    e1 = (dd == b && e != c) || (b == f && e != a) ? b : e;
-                    e2 = b == f ? f : e;
-                    e3 = (dd == b && e != g) || (dd == hh && e != a) ? dd : e;
-                    e5 = (b == f && e != i) || (hh == f && e != c) ? f : e;
-                    e6 = dd == hh ? dd : e;
-                    e7 = (dd == hh && e != i) || (hh == f && e != g) ? hh : e;
-                    e8 = hh == f ? f : e;
-                }
-                int p = o + x * 3;
-                d[p] = e0;
-                d[p + 1] = e1;
-                d[p + 2] = e2;
-                d[p + ow] = e3;
-                d[p + ow + 1] = e;
-                d[p + ow + 2] = e5;
-                d[p + 2 * ow] = e6;
-                d[p + 2 * ow + 1] = e7;
-                d[p + 2 * ow + 2] = e8;
-            }
-        }
-        return out;
     }
 }

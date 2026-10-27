@@ -42,23 +42,32 @@ final class Debug {
         }
     }
 
-    /** With drpc.dump set, also saves the whole window (menu, legend, background) once per second. */
-    static void startWindowDump(javax.swing.JComponent window) {
-        if (DUMP == null) {
+    private static long lastWindowDump;
+    private static int windowIndex;
+
+    /**
+     * With drpc.dump set, saves the whole window (background, menu, legend) once per second.
+     * pixels returns the OpenGL framebuffer, bottom row first. Called on the render thread.
+     */
+    static void onWindow(int w, int h, java.util.function.Supplier<int[]> pixels) {
+        if (DUMP == null || w <= 0 || h <= 0) {
             return;
         }
-        int[] n = {0};
-        new javax.swing.Timer(1000, e -> {
-            BufferedImage img = new BufferedImage(window.getWidth(), window.getHeight(), BufferedImage.TYPE_INT_RGB);
-            java.awt.Graphics2D g = img.createGraphics();
-            window.paint(g);
-            g.dispose();
-            try {
-                ImageIO.write(img, "png", DUMP.resolve(String.format("win%03d.png", n[0]++)).toFile());
-            } catch (IOException ex) {
-                ex.printStackTrace();
-            }
-        }).start();
+        long now = System.currentTimeMillis();
+        if (now - lastWindowDump < 1000) {
+            return;
+        }
+        lastWindowDump = now;
+        int[] px = pixels.get();
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        for (int y = 0; y < h; y++) {
+            img.setRGB(0, h - 1 - y, w, 1, px, y * w, w);
+        }
+        try {
+            ImageIO.write(img, "png", DUMP.resolve(String.format("win%03d.png", windowIndex++)).toFile());
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     private static final String BURST = System.getProperty("drpc.burst"); // "startMs:count"

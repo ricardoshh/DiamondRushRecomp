@@ -52,10 +52,12 @@ public final class MidiPlayer implements Player, VolumeControl {
     }
 
     private static synchronized Receiver synth() throws Exception {
-        if (synth == null) {
-            synth = MidiSystem.getSynthesizer();
-            synth.open();
-            synthReceiver = synth.getReceiver();
+        if (synthReceiver == null) {
+            // publish only a fully opened synthesizer: a failed open must not leave a half-set state
+            Synthesizer s = MidiSystem.getSynthesizer();
+            s.open();
+            synthReceiver = s.getReceiver();
+            synth = s;
         }
         return synthReceiver;
     }

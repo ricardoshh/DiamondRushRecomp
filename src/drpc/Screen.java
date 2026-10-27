@@ -1,68 +1,56 @@
 package drpc;
 
+import static org.lwjgl.glfw.GLFW.*;
+
 import java.awt.Color;
-import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.FontMetrics;
-import java.awt.Graphics;
 import java.awt.Graphics2D;
-import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.Toolkit;
-import java.awt.event.KeyAdapter;
-import java.awt.event.KeyEvent;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
 import java.awt.image.BufferedImage;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
 import javax.microedition.lcdui.Display;
-import javax.swing.JFrame;
-import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 
 /**
- * Desktop window: shows the 240x320 phone screen upscaled over a background, the options menu,
- * button prompts for the active input device, and turns keyboard input into phone keys.
+ * UI state of the game window: settings, options menu, toasts, controls legend and keyboard
+ * mapping. Lives on the Swing thread; the window itself is a GLWindow, which forwards input here
+ * and composites the two UI layers this class draws (under the picture: bezel and legend; over it:
+ * menu and messages).
  */
-final class Screen extends JPanel implements Input.Listener {
+final class Screen implements Input.Listener {
 
-    private static final Cursor BLANK_CURSOR = Toolkit.getDefaultToolkit().createCustomCursor(
-            new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB), new Point(), "blank");
     private static final int[] SPEEDS = {50, 75, 100, 125, 150, 200};
     private static final int[] FPS = {20, 60, 120, 144, 240};
     private static final String[] GLYPH_PREFS = {"auto", "keyboard", "xbox", "playstation"};
     private static final String[] GLYPH_LABELS = {"Automático", "Teclado", "Xbox", "PlayStation"};
 
-    // Triple buffering: the producer fills "back", the window paints "shown", "ready" sits between.
-    // Only the pointer swaps are locked, so a slow paint never blocks the game or the presenter.
-    private final Object swapLock = new Object();
-    private BufferedImage back = newFrame();
-    private BufferedImage ready = newFrame();
-    private BufferedImage shown = newFrame();
-    private boolean fresh;
-    private final Upscaler upscaler = new Upscaler(Runtime.SCREEN_W, Runtime.SCREEN_H);
     private final Settings settings;
-    private final JFrame frame;
-    private final Map<Integer, Integer> heldKeys = new HashMap<>(); // AWT key code -> phone key
+    private final String title;
     private final OptionsMenu menu;
+    private final Map<Integer, Integer> heldKeys = new HashMap<>(); // GLFW key -> phone key
+    private GLWindow window;
 
-    private Upscaler.Filter filter;
-    private Upscaler.Background background;
+    // read by the render thread
+    private volatile Upscaler.Filter filter;
+    private volatile Upscaler.Background background;
+
     private boolean fullscreen;
     private boolean legend;
     private int glyphPref;
     private int speed;
     private int volume;
     private int windowScale;
-    private Rectangle windowedBounds;
+    private int fbW;
+    private int fbH;
     private Runnable onClose = () -> System.exit(0);
     private String gameJarName = "";
 
@@ -70,87 +58,33 @@ final class Screen extends JPanel implements Input.Listener {
     private final Timer toastTimer;
 
     Screen(String title, Settings settings) {
+        this.title = title;
         this.settings = settings;
         filter = Upscaler.Filter.fromId(settings.get("video.filter", "sharp"));
         background = Upscaler.Background.fromId(settings.get("video.background", "blur"));
         legend = settings.getBool("input.legend", true);
-        glyphPref = Math.max(0, java.util.Arrays.asList(GLYPH_PREFS).indexOf(settings.get("input.glyphs", "auto")));
+        glyphPref = Math.max(0, Arrays.asList(GLYPH_PREFS).indexOf(settings.get("input.glyphs", "auto")));
         speed = clampSpeed((int) settings.getFloat("game.speed", 100));
         volume = Math.max(0, Math.min(100, (int) settings.getFloat("audio.volume", 100)));
         GameClock.setSpeed(speed / 100.0);
         Runtime.setMasterVolume(volume);
-
-        setBackground(Color.BLACK);
-        setFocusable(true);
-        setFocusTraversalKeysEnabled(false);
         windowScale = (int) settings.getFloat("video.windowScale", 0);
         if (windowScale < 1 || windowScale > maxWindowScale()) {
             windowScale = maxWindowScale();
         }
-        setPreferredSize(new Dimension(Runtime.SCREEN_W * windowScale, Runtime.SCREEN_H * windowScale));
 
         toastTimer = new Timer(2500, e -> {
             toast = null;
-            repaint();
+            redrawLayers();
         });
         toastTimer.setRepeats(false);
 
         menu = new OptionsMenu(() -> {
             Input.releaseAllForGame();
             GameClock.setPaused(true);
-            repaint();
-        }, () -> {
-            GameClock.setPaused(false);
-            repaint();
-        });
+        }, () -> GameClock.setPaused(false));
         buildMenu();
         Input.setListener(this);
-
-        frame = new JFrame(title);
-        frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-        frame.add(this);
-        frame.pack();
-        frame.setLocationRelativeTo(null);
-        frame.addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosing(WindowEvent e) {
-                onClose.run();
-            }
-
-            @Override
-            public void windowIconified(WindowEvent e) {
-                Display.visibilityEvent(false);
-            }
-
-            @Override
-            public void windowDeiconified(WindowEvent e) {
-                Display.visibilityEvent(true);
-            }
-
-            @Override
-            public void windowDeactivated(WindowEvent e) {
-                releaseAllKeys(); // avoid keys stuck down after Alt+Tab
-            }
-        });
-        addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                onKey(e, true);
-            }
-
-            @Override
-            public void keyReleased(KeyEvent e) {
-                onKey(e, false);
-            }
-        });
-        addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 2) {
-                    setFullscreen(!fullscreen);
-                }
-            }
-        });
     }
 
     private void buildMenu() {
@@ -171,14 +105,15 @@ final class Screen extends JPanel implements Input.Listener {
             }
             int fps = FPS[Math.floorMod(i + d, FPS.length)];
             Interpolator.configure(fps);
+            window.updateSwapInterval();
             settings.set("video.fps", String.valueOf(fps));
         });
-        menu.value("Tela cheia", () -> fullscreen ? "Ligada" : "Desligada", d -> setFullscreen(!fullscreen));
+        menu.value("Tela cheia", () -> fullscreen ? "Ligada" : "Desligada", d -> window.setFullscreen(!fullscreen));
         menu.value("Tamanho da janela",
                 () -> windowScale + "x (" + Runtime.SCREEN_W * windowScale + "x" + Runtime.SCREEN_H * windowScale + ")",
                 d -> setWindowScale(windowScale + d), () -> !fullscreen);
         menu.value("Velocidade do jogo", () -> speed + "%", d -> {
-            int i = java.util.Arrays.binarySearch(SPEEDS, speed);
+            int i = Arrays.binarySearch(SPEEDS, speed);
             speed = SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, i + d))];
             GameClock.setSpeed(speed / 100.0);
             settings.set("game.speed", String.valueOf(speed));
@@ -207,16 +142,28 @@ final class Screen extends JPanel implements Input.Listener {
         gameJarName = jar.getFileName().toString();
     }
 
-    void show(java.awt.Image icon) {
-        if (icon != null) {
-            frame.setIconImage(icon);
-        }
-        frame.setVisible(true);
-        if (settings.getBool("video.fullscreen", false)) {
-            setFullscreen(true);
-        }
-        requestFocusInWindow();
+    /** Opens the window (call on the Swing thread). */
+    void show(BufferedImage icon) {
+        window = new GLWindow(this, settings, title, icon);
+        window.start(Runtime.SCREEN_W * windowScale, Runtime.SCREEN_H * windowScale,
+                settings.getBool("video.fullscreen", false));
         showToast(Input.device() == Input.Device.KEYBOARD ? "F12: opções" : "Guide ou Back+Start: opções");
+    }
+
+    Upscaler.Filter filter() {
+        return filter;
+    }
+
+    Upscaler.Background background() {
+        return background;
+    }
+
+    /** A finished game frame (game thread). */
+    void present(BufferedImage frame) {
+        GLWindow w = window;
+        if (w != null) {
+            w.present(frame);
+        }
     }
 
     /** Shows a short message over the game. Safe to call from any thread. */
@@ -224,8 +171,87 @@ final class Screen extends JPanel implements Input.Listener {
         SwingUtilities.invokeLater(() -> {
             toast = text;
             toastTimer.restart();
-            repaint();
+            redrawLayers();
         });
+    }
+
+    // ---------------------------------------------------------------- window events (Swing thread)
+
+    void onResize(int w, int h) {
+        fbW = w;
+        fbH = h;
+        redrawLayers();
+    }
+
+    void onFullscreenChanged(boolean on) {
+        fullscreen = on;
+        settings.set("video.fullscreen", String.valueOf(on));
+        redrawLayers();
+    }
+
+    void onFocusLost() {
+        for (int code : heldKeys.values()) {
+            Input.release(code); // avoid keys stuck down after Alt+Tab
+        }
+        heldKeys.clear();
+    }
+
+    void onIconify(boolean iconified) {
+        Display.visibilityEvent(!iconified);
+    }
+
+    void onCloseRequest() {
+        onClose.run();
+    }
+
+    void onKey(int key, int mods, boolean down) {
+        if (down) {
+            if (key == GLFW_KEY_F10) {
+                filter = filter.next((mods & GLFW_MOD_SHIFT) != 0 ? -1 : 1);
+                settings.set("video.filter", filter.id);
+                showToast("Filtro: " + filter.label);
+                return;
+            }
+            if (heldKeys.containsKey(key)) {
+                return;
+            }
+            int code = phoneKey(key, mods);
+            if (code != Input.NONE) {
+                heldKeys.put(key, code);
+                Input.press(code, Input.Device.KEYBOARD);
+            }
+        } else {
+            Integer code = heldKeys.remove(key);
+            if (code != null) {
+                Input.release(code);
+            }
+        }
+    }
+
+    private static int phoneKey(int key, int mods) {
+        boolean shift = (mods & GLFW_MOD_SHIFT) != 0;
+        switch (key) {
+            case GLFW_KEY_UP: case GLFW_KEY_W: return Input.UP;
+            case GLFW_KEY_DOWN: case GLFW_KEY_S: return Input.DOWN;
+            case GLFW_KEY_LEFT: case GLFW_KEY_A: return Input.LEFT;
+            case GLFW_KEY_RIGHT: case GLFW_KEY_D: return Input.RIGHT;
+            case GLFW_KEY_ENTER: case GLFW_KEY_KP_ENTER: case GLFW_KEY_SPACE: return Input.OK;
+            case GLFW_KEY_F1: case GLFW_KEY_Q: return Input.SOFT_LEFT;
+            case GLFW_KEY_F2: case GLFW_KEY_E: case GLFW_KEY_ESCAPE: return Input.SOFT_RIGHT;
+            case GLFW_KEY_F12: case GLFW_KEY_TAB: return Input.MENU;
+            case GLFW_KEY_KP_MULTIPLY: return '*';
+            case GLFW_KEY_KP_DIVIDE: return '#';
+            case GLFW_KEY_8: if (shift) { return '*'; } break;
+            case GLFW_KEY_3: if (shift) { return '#'; } break;
+            default: break;
+        }
+        if (key >= GLFW_KEY_0 && key <= GLFW_KEY_9 && !shift) {
+            return '0' + (key - GLFW_KEY_0);
+        }
+        if (key >= GLFW_KEY_KP_0 && key <= GLFW_KEY_KP_9) {
+            return '0' + (key - GLFW_KEY_KP_0);
+        }
+        return Input.NONE;
     }
 
     // ---------------------------------------------------------------- Input.Listener
@@ -241,7 +267,7 @@ final class Screen extends JPanel implements Input.Listener {
     public boolean menuKey(int code) {
         boolean used = menu.key(code);
         if (used) {
-            repaint();
+            redrawLayers();
         }
         return used;
     }
@@ -257,81 +283,59 @@ final class Screen extends JPanel implements Input.Listener {
         }
     }
 
-    // ---------------------------------------------------------------- video
+    // ---------------------------------------------------------------- UI layers
 
-    private static BufferedImage newFrame() {
-        return new BufferedImage(Runtime.SCREEN_W, Runtime.SCREEN_H, BufferedImage.TYPE_INT_RGB);
-    }
-
-    void present(BufferedImage src) {
-        back.setData(src.getRaster());
-        synchronized (swapLock) {
-            BufferedImage t = ready;
-            ready = back;
-            back = t;
-            fresh = true;
-        }
-        repaint();
-    }
-
-    @Override
-    protected void paintComponent(Graphics g0) {
-        super.paintComponent(g0);
-        Graphics2D g = (Graphics2D) g0;
-        int w = getWidth();
-        int h = getHeight();
-        Rectangle pic;
-        synchronized (swapLock) {
-            if (fresh) {
-                BufferedImage t = shown;
-                shown = ready;
-                ready = t;
-                fresh = false;
-            }
-        }
-        long p0 = System.nanoTime();
-        pic = upscaler.draw(g, shown, filter, background, w, h);
-        paintStats(System.nanoTime() - p0);
-        if (legend && !menu.isOpen()) {
-            drawLegend(g, pic);
-        }
-        if (menu.isOpen()) {
-            menu.paint(g, w, h, glyphStyle());
-        }
-        if (toast != null) {
-            drawToast(g);
-        }
-    }
-
-    private static final boolean STATS = Boolean.getBoolean("drpc.stats");
-    private int paints;
-    private long paintNanos;
-    private long paintStart;
-
-    private void paintStats(long nanos) {
-        if (!STATS) {
+    /** Redraws both UI layers for the current state and hands them to the window. */
+    private void redrawLayers() {
+        if (window == null || fbW <= 0 || fbH <= 0) {
             return;
         }
-        long now = System.nanoTime();
-        if (paintStart == 0) {
-            paintStart = now;
+        Rectangle pic = Upscaler.layout(filter, background, fbW, fbH);
+        boolean border = pic.width < fbW || pic.height < fbH;
+
+        boolean bezel = background == Upscaler.Background.FRAME && border;
+        boolean side = legend && !menu.isOpen() && pic.x >= legendSize() * 9;
+        BufferedImage u = null;
+        if (bezel || side) {
+            u = layer();
+            Graphics2D g = u.createGraphics();
+            if (bezel) {
+                Upscaler.drawFrame(g, pic);
+            }
+            if (side) {
+                drawLegend(g, pic);
+            }
+            g.dispose();
         }
-        paintNanos += nanos;
-        if (++paints % 120 == 0) {
-            System.out.printf("[stats] window %.1f fps, scale %.2f ms%n", paints * 1e9 / (now - paintStart), paintNanos / 1e6 / paints);
-            paints = 0;
-            paintNanos = 0;
-            paintStart = now;
+
+        BufferedImage o = null;
+        if (menu.isOpen() || toast != null) {
+            o = layer();
+            Graphics2D g = o.createGraphics();
+            if (menu.isOpen()) {
+                menu.paint(g, fbW, fbH, glyphStyle());
+            }
+            if (toast != null) {
+                drawToast(g);
+            }
+            g.dispose();
         }
+        window.setLayers(u, o);
+    }
+
+    /** A new transparent layer of the window size (the render thread may still be reading the old one). */
+    private BufferedImage layer() {
+        return new BufferedImage(fbW, fbH, BufferedImage.TYPE_INT_ARGB);
+    }
+
+    private int legendSize() {
+        return Math.max(18, Math.min(40, fbH / 26));
     }
 
     /** Control prompts for the active device, in the free space left of the picture. */
     private void drawLegend(Graphics2D g, Rectangle pic) {
         int space = pic.x;
-        int size = Math.max(18, Math.min(40, getHeight() / 26));
-        if (space < size * 9) {
-            return;
-        }
+        int size = legendSize();
         Glyphs.Style st = glyphStyle();
         boolean kb = st == Glyphs.Style.KEYBOARD;
         String[][] rows = kb
@@ -340,15 +344,15 @@ final class Screen extends JPanel implements Input.Listener {
                 : new String[][] {{"dpad", "Mover"}, {padButton(Input.OK, "a"), "Confirmar / ação"},
                     {padButton(Input.SOFT_RIGHT, "b"), "Voltar"}, {padButton(Input.SOFT_LEFT, "start"), "Menu do jogo"},
                     {"guide", "Opções"}};
-        String title = kb ? "Teclado" : (st == Glyphs.Style.PLAYSTATION ? "Controle PlayStation" : "Controle Xbox");
+        String head = kb ? "Teclado" : (st == Glyphs.Style.PLAYSTATION ? "Controle PlayStation" : "Controle Xbox");
 
         g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
         int line = size * 3 / 2;
         int x = Math.max(size, (space - size * 9) / 2);
-        int y = getHeight() / 2 - (rows.length + 1) * line / 2;
+        int y = fbH / 2 - (rows.length + 1) * line / 2;
         g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, size * 2 / 3));
         g.setColor(new Color(0xE8C04A));
-        g.drawString(title, x, y + size / 2);
+        g.drawString(head, x, y + size / 2);
         Font label = new Font(Font.SANS_SERIF, Font.PLAIN, size * 3 / 5);
         g.setFont(label);
         FontMetrics fm = g.getFontMetrics();
@@ -367,8 +371,9 @@ final class Screen extends JPanel implements Input.Listener {
     }
 
     private void drawToast(Graphics2D g) {
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-        int size = Math.max(14, getHeight() / 40);
+        int size = Math.max(14, fbH / 40);
         g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, size));
         int w = g.getFontMetrics().stringWidth(toast);
         int pad = size / 2;
@@ -378,13 +383,7 @@ final class Screen extends JPanel implements Input.Listener {
         g.drawString(toast, pad * 2, pad * 2 + size - size / 5);
     }
 
-    private void cycleFilter(int dir) {
-        filter = filter.next(dir);
-        settings.set("video.filter", filter.id);
-        showToast("Filtro: " + filter.label);
-    }
-
-    // ---------------------------------------------------------------- window / fullscreen
+    // ---------------------------------------------------------------- window size / game file
 
     private int maxWindowScale() {
         Dimension desktop = Toolkit.getDefaultToolkit().getScreenSize();
@@ -394,117 +393,20 @@ final class Screen extends JPanel implements Input.Listener {
     private void setWindowScale(int k) {
         windowScale = Math.max(1, Math.min(maxWindowScale(), k));
         settings.set("video.windowScale", String.valueOf(windowScale));
-        if (!fullscreen) {
-            setPreferredSize(new Dimension(Runtime.SCREEN_W * windowScale, Runtime.SCREEN_H * windowScale));
-            frame.pack();
-        }
-    }
-
-    /** Borderless fullscreen on the monitor the window is on (no video mode switch). */
-    private void setFullscreen(boolean on) {
-        if (on == fullscreen) {
-            return;
-        }
-        fullscreen = on;
-        Rectangle monitor = frame.getGraphicsConfiguration().getBounds();
-        frame.dispose();
-        if (on) {
-            windowedBounds = frame.getBounds();
-            frame.setUndecorated(true);
-            frame.setBounds(monitor);
-            setCursor(BLANK_CURSOR);
-        } else {
-            frame.setUndecorated(false);
-            if (windowedBounds != null) {
-                frame.setBounds(windowedBounds);
-            } else {
-                frame.pack();
-                frame.setLocationRelativeTo(null);
-            }
-            setCursor(Cursor.getDefaultCursor());
-        }
-        frame.setVisible(true);
-        frame.toFront();
-        requestFocusInWindow();
-        settings.set("video.fullscreen", String.valueOf(on));
+        window.setWindowSize(Runtime.SCREEN_W * windowScale, Runtime.SCREEN_H * windowScale);
     }
 
     private void chooseGameJar() {
         if (fullscreen) {
-            setFullscreen(false); // file dialogs can hide behind a borderless fullscreen window
+            window.setFullscreen(false); // the file dialog would open behind a fullscreen window
         }
-        Path jar = Launcher.chooseJar(frame);
+        Path jar = Launcher.chooseJar(null);
         if (jar == null) {
             return;
         }
         settings.set("game.jar", jar.toAbsolutePath().toString().replace('\\', '/'));
         showToast("Reiniciando com " + jar.getFileName() + "...");
         Launcher.relaunch();
-    }
-
-    // ---------------------------------------------------------------- input
-
-    private void onKey(KeyEvent e, boolean down) {
-        int vk = e.getKeyCode();
-        if (down) {
-            if (vk == KeyEvent.VK_F11 || (vk == KeyEvent.VK_ENTER && e.isAltDown())) {
-                setFullscreen(!fullscreen);
-                repaint();
-                return;
-            }
-            if (vk == KeyEvent.VK_F10) {
-                cycleFilter(e.isShiftDown() ? -1 : 1);
-                return;
-            }
-            if (heldKeys.containsKey(vk)) {
-                return; // OS auto-repeat
-            }
-            int code = phoneKey(e);
-            if (code != Input.NONE) {
-                heldKeys.put(vk, code);
-                Input.press(code, Input.Device.KEYBOARD);
-            }
-        } else {
-            Integer code = heldKeys.remove(vk);
-            if (code != null) {
-                Input.release(code);
-            }
-        }
-    }
-
-    private void releaseAllKeys() {
-        for (int code : heldKeys.values()) {
-            Input.release(code);
-        }
-        heldKeys.clear();
-    }
-
-    private static int phoneKey(KeyEvent e) {
-        switch (e.getKeyCode()) {
-            case KeyEvent.VK_UP: case KeyEvent.VK_W: return Input.UP;
-            case KeyEvent.VK_DOWN: case KeyEvent.VK_S: return Input.DOWN;
-            case KeyEvent.VK_LEFT: case KeyEvent.VK_A: return Input.LEFT;
-            case KeyEvent.VK_RIGHT: case KeyEvent.VK_D: return Input.RIGHT;
-            case KeyEvent.VK_ENTER: case KeyEvent.VK_SPACE: return Input.OK;
-            case KeyEvent.VK_F1: case KeyEvent.VK_Q: return Input.SOFT_LEFT;
-            case KeyEvent.VK_F2: case KeyEvent.VK_E: case KeyEvent.VK_ESCAPE: return Input.SOFT_RIGHT;
-            case KeyEvent.VK_F12: case KeyEvent.VK_TAB: return Input.MENU;
-            case KeyEvent.VK_MULTIPLY: return '*';
-            case KeyEvent.VK_DIVIDE: return '#';
-            default: break;
-        }
-        int vk = e.getKeyCode();
-        if (vk >= KeyEvent.VK_0 && vk <= KeyEvent.VK_9 && !e.isShiftDown()) {
-            return '0' + (vk - KeyEvent.VK_0);
-        }
-        if (vk >= KeyEvent.VK_NUMPAD0 && vk <= KeyEvent.VK_NUMPAD9) {
-            return '0' + (vk - KeyEvent.VK_NUMPAD0);
-        }
-        char c = e.getKeyChar();
-        if (c == '*' || c == '#') {
-            return c;
-        }
-        return Input.NONE;
     }
 
     private static int clampSpeed(int s) {

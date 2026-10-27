@@ -83,6 +83,23 @@ Para outros controles, coloque um `gamecontrollerdb.txt` (formato SDL) ao lado d
 O jogo detecta o último dispositivo usado (teclado ou controle). Quando há espaço ao lado da imagem,
 uma legenda mostra os botões desse dispositivo, com ícones de teclado, Xbox ou PlayStation.
 
+## Vídeo: 60, 120, 144 fps
+
+O jogo original roda a 20 ticks por segundo, com lógica e desenho presos ao mesmo ciclo. Para ter
+movimento fluido sem mudar a velocidade do jogo:
+
+1. Cada tick, os comandos de desenho da tela são gravados (`DrawList`).
+2. Cada sprite é emparelhado com ele mesmo no tick anterior, e os quadros intermediários são
+   desenhados com as posições interpoladas (`Interpolator`). O fundo do mapa, que o jogo guarda num
+   buffer circular de tiles, é redesenhado a partir da câmera interpolada.
+3. A janela é desenhada em OpenGL 3.3 (`GLWindow`), sincronizada ao monitor (vsync). Os filtros
+   (nítido, Scale2x/3x/4x) e o fundo desfocado são shaders.
+
+Medido numa GTX 950 em tela cheia 1080p com Scale4x: 60 fps cravados com vsync e 240 fps sem vsync,
+com ~1,4 ms por quadro para montar a imagem do jogo e ~0,15 ms para desenhar na GPU.
+
+Requer uma placa de vídeo com OpenGL 3.3 (praticamente qualquer GPU a partir de 2010).
+
 ## Menu de opções
 
 Abra com F12 (ou Guide / Back+Start). O jogo fica congelado, inclusive a música, enquanto o menu
@@ -103,10 +120,8 @@ está aberto.
 
 ### Limitações conhecidas
 
-- **60/120 fps:** o jogo roda a 20 ticks por segundo. A opção "Taxa de quadros" grava os comandos
-  de desenho de cada tick e desenha quadros intermediários interpolando a posição de cada sprite e da
-  câmera (atraso de ~50 ms). Em janela pequena chega a 60 fps estáveis; em tela cheia a ampliação
-  feita pela CPU (Swing) não passa de ~12 fps. A solução planejada é renderizar a janela na GPU.
+- **Atraso da interpolação:** os quadros intermediários ficam um tick atrás do jogo (~50 ms). Quem
+  preferir a resposta original pode escolher "Original (20)" em Taxa de quadros.
 - **16:9 / 4:3 nativo:** a resolução 240x320 está fixa em ~160 pontos do código, e o mapa é
   desenhado num buffer de 240 px. Trocar só as constantes não funciona (testado). Por enquanto, a
   tela cheia usa fundo desfocado ou moldura em volta da imagem original.
@@ -126,11 +141,13 @@ Os saves (RMS) ficam em `saves\`. Na versão empacotada, os erros vão para `log
 |---|---|
 | Launcher: lê o manifest, carrega o jar e inicia o MIDlet | `src/drpc/Launcher.java` |
 | Carregamento + patches de bytecode (ASM) | `src/drpc/GameClassLoader.java` |
-| Janela, tela cheia, legenda e teclado | `src/drpc/Screen.java` |
+| Janela OpenGL, vsync, shaders de filtro, tela cheia | `src/drpc/GLWindow.java` |
+| Estado da interface, legenda, mensagens, teclado | `src/drpc/Screen.java` |
+| Interpolação de quadros | `src/drpc/Interpolator.java`, `src/javax/microedition/lcdui/DrawList.java` |
 | Menu de opções | `src/drpc/OptionsMenu.java` |
 | Ícones de botões (teclado, Xbox, PlayStation) | `src/drpc/Glyphs.java` |
 | Relógio do jogo (velocidade, pausa) | `src/drpc/GameClock.java` |
-| Filtros de upscaling | `src/drpc/Upscaler.java` |
+| Layout da imagem e moldura | `src/drpc/Upscaler.java` |
 | Controle (GLFW) e junção das entradas | `src/drpc/Gamepad.java`, `src/drpc/Input.java` |
 | Configurações | `src/drpc/Settings.java` |
 | Gráficos (Canvas, GameCanvas, Graphics, Image) sobre Java2D | `src/javax/microedition/lcdui/` |
@@ -143,6 +160,8 @@ Os saves (RMS) ficam em `saves\`. Na versão empacotada, os erros vão para `log
   `"string".getClass()`, que no celular lê do jar do jogo, mas no desktop retornaria `null`.
 - `System.currentTimeMillis`, `Thread.sleep` e `Thread.yield` → `drpc.GameClock`, para controlar a
   velocidade e congelar o jogo com o menu aberto.
+- `System.gc()` removido: o jogo o chama nas transições, e uma coleta completa forçada travava a
+  tela por 300–400 ms.
 
 ## Depuração
 

@@ -184,6 +184,13 @@ final class OptionsMenu {
                     v = "‹  " + v + "  ›";
                 }
                 FontMetrics fm = g.getFontMetrics();
+                int room = pw - pad * 3 - fm.stringWidth(it.label);
+                if (fm.stringWidth(v) > room) {
+                    while (v.length() > 1 && fm.stringWidth(v + "…") > room) {
+                        v = v.substring(0, v.length() - 1);
+                    }
+                    v += "…";
+                }
                 drawText(g, v, px + pw - pad - fm.stringWidth(v), cy, on ? (i == selected ? GOLD : TEXT) : DIM);
             }
         }

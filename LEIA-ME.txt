@@ -25,6 +25,8 @@ F12 ou Tab (controle: Guide ou Back+Start) = menu de opcoes
 F10 = trocar filtro de imagem (Shift+F10 volta)
 F11, Alt+Enter ou duplo clique = tela cheia
 
+Requer placa de video com OpenGL 3.3.
+
 Configuracoes ficam em settings.properties (filtro, tela cheia, botoes do controle).
 Saves ficam na pasta saves/. Erros sao registrados em log.txt.
 Controles nao reconhecidos: coloque um gamecontrollerdb.txt (SDL) nesta pasta.

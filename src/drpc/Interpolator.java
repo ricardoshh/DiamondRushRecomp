@@ -7,7 +7,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.locks.LockSupport;
 
 import javax.microedition.lcdui.DrawList;
 import javax.microedition.lcdui.Graphics;
@@ -17,7 +16,7 @@ import javax.microedition.lcdui.Image;
  * High frame rate output for a game whose logic and drawing are locked to 20 ticks per second.
  *
  * Every tick, the screen's draw calls are recorded (DrawList). Each sprite of the new frame is
- * matched with the same sprite in the previous frame, and a presenter thread draws in-between
+ * matched with the same sprite in the previous frame, and the render thread draws in-between
  * frames at the display rate, moving matched sprites from their previous to their current
  * position. Output lags the game by one tick (~50 ms), the usual cost of interpolation.
  *
@@ -37,7 +36,7 @@ final class Interpolator implements DrawList.Sink {
     private static volatile boolean enabled;
     private static volatile int targetFps = 60;
 
-    /** Two consecutive recorded ticks; replaced as a whole so the presenter sees a consistent pair. */
+    /** Two consecutive recorded ticks; replaced as a whole so the render thread sees a consistent pair. */
     private static final class Pair {
         final DrawList prev;
         final DrawList cur;
@@ -293,60 +292,19 @@ final class Interpolator implements DrawList.Sink {
         return c;
     }
 
-    // ---------------------------------------------------------------- presenter thread
+    // ---------------------------------------------------------------- render thread
 
-    static void startPresenter() {
-        Thread t = new Thread(INSTANCE::presentLoop, "presenter");
-        t.setDaemon(true);
-        t.setPriority(Thread.MAX_PRIORITY);
-        t.start();
-    }
-
-    private void presentLoop() {
-        BufferedImage frame = new BufferedImage(Runtime.SCREEN_W, Runtime.SCREEN_H, BufferedImage.TYPE_INT_RGB);
-        long next = System.nanoTime();
-        boolean stats = Boolean.getBoolean("drpc.stats");
-        long statStart = next;
-        int frames = 0;
-        long renderNanos = 0;
-        long presentNanos = 0;
-        long worstGap = 0;
-        long lastFrame = next;
-        while (true) {
-            long period = 1_000_000_000L / Math.max(1, targetFps);
-            next += period;
-            long now = System.nanoTime();
-            if (next < now - period) {
-                next = now; // fell behind (window dragged, GC): don't try to catch up
-            }
-            Pair p = pair;
-            if (enabled && p != null) {
-                long t0 = System.nanoTime();
-                render(p, frame, now);
-                long tr = System.nanoTime();
-                Runtime.present(frame);
-                if (stats) {
-                    long t1 = System.nanoTime();
-                    renderNanos += tr - t0;
-                    presentNanos += t1 - tr;
-                    worstGap = Math.max(worstGap, t1 - lastFrame);
-                    lastFrame = t1;
-                    if (++frames % 120 == 0) {
-                        System.out.printf("[stats] %.1f fps, replay %.2f ms, present %.2f ms, worst gap %.1f ms, tick %.1f ms%n",
-                                frames * 1e9 / (t1 - statStart), renderNanos / 1e6 / frames, presentNanos / 1e6 / frames, worstGap / 1e6, tickNanos / 1e6);
-                        frames = 0;
-                        renderNanos = 0;
-                        presentNanos = 0;
-                        worstGap = 0;
-                        statStart = t1;
-                    }
-                }
-            }
-            long wait = next - System.nanoTime();
-            if (wait > 0) {
-                LockSupport.parkNanos(wait);
-            }
+    /**
+     * Draws the in-between frame for time `now` (System.nanoTime) into frame.
+     * Returns false when there is nothing to interpolate (disabled or no frame yet).
+     */
+    static boolean renderFrame(BufferedImage frame, long now) {
+        Pair p = INSTANCE.pair;
+        if (!enabled || p == null) {
+            return false;
         }
+        INSTANCE.render(p, frame, now);
+        return true;
     }
 
     private void render(Pair p, BufferedImage frame, long now) {
