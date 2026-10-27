@@ -93,6 +93,7 @@ está aberto.
 | Arquivo do jogo | Escolhe outro `.jar` e reinicia |
 | Filtro de imagem | Pixel perfect, Nítido, Suave, Scale2x/3x/4x |
 | Fundo / bordas | Preto, Desfoque do jogo ou Moldura em volta da imagem 3:4 |
+| Taxa de quadros | Original (20), 60, 120, 144 ou 240 fps com interpolação |
 | Tela cheia | Liga/desliga a tela cheia sem bordas |
 | Tamanho da janela | 1x, 2x, 3x... (fora da tela cheia) |
 | Velocidade do jogo | 50% a 200% da velocidade original |
@@ -102,9 +103,10 @@ está aberto.
 
 ### Limitações conhecidas
 
-- **60/120 fps:** o jogo original roda a 20 quadros por segundo fixos, com lógica e desenho
-  presos ao mesmo tick. Aumentar a taxa acelera o jogo inteiro (é o que a opção de velocidade faz).
-  Movimento realmente mais fluido exige interpolar as posições dos sprites dentro do código do jogo.
+- **60/120 fps:** o jogo roda a 20 ticks por segundo. A opção "Taxa de quadros" grava os comandos
+  de desenho de cada tick e desenha quadros intermediários interpolando a posição de cada sprite e da
+  câmera (atraso de ~50 ms). Em janela pequena chega a 60 fps estáveis; em tela cheia a ampliação
+  feita pela CPU (Swing) não passa de ~12 fps. A solução planejada é renderizar a janela na GPU.
 - **16:9 / 4:3 nativo:** a resolução 240x320 está fixa em ~160 pontos do código, e o mapa é
   desenhado num buffer de 240 px. Trocar só as constantes não funciona (testado). Por enquanto, a
   tela cheia usa fundo desfocado ou moldura em volta da imagem original.

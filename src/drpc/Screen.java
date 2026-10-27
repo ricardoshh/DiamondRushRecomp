@@ -37,11 +37,17 @@ final class Screen extends JPanel implements Input.Listener {
     private static final Cursor BLANK_CURSOR = Toolkit.getDefaultToolkit().createCustomCursor(
             new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB), new Point(), "blank");
     private static final int[] SPEEDS = {50, 75, 100, 125, 150, 200};
+    private static final int[] FPS = {20, 60, 120, 144, 240};
     private static final String[] GLYPH_PREFS = {"auto", "keyboard", "xbox", "playstation"};
     private static final String[] GLYPH_LABELS = {"Automático", "Teclado", "Xbox", "PlayStation"};
 
-    private final BufferedImage front =
-            new BufferedImage(Runtime.SCREEN_W, Runtime.SCREEN_H, BufferedImage.TYPE_INT_RGB);
+    // Triple buffering: the producer fills "back", the window paints "shown", "ready" sits between.
+    // Only the pointer swaps are locked, so a slow paint never blocks the game or the presenter.
+    private final Object swapLock = new Object();
+    private BufferedImage back = newFrame();
+    private BufferedImage ready = newFrame();
+    private BufferedImage shown = newFrame();
+    private boolean fresh;
     private final Upscaler upscaler = new Upscaler(Runtime.SCREEN_W, Runtime.SCREEN_H);
     private final Settings settings;
     private final JFrame frame;
@@ -158,6 +164,15 @@ final class Screen extends JPanel implements Input.Listener {
             background = background.next(d);
             settings.set("video.background", background.id);
         });
+        menu.value("Taxa de quadros", () -> Interpolator.targetFps() <= 20 ? "Original (20)" : Interpolator.targetFps() + " fps", d -> {
+            int i = 0;
+            while (i < FPS.length - 1 && FPS[i] < Interpolator.targetFps()) {
+                i++;
+            }
+            int fps = FPS[Math.floorMod(i + d, FPS.length)];
+            Interpolator.configure(fps);
+            settings.set("video.fps", String.valueOf(fps));
+        });
         menu.value("Tela cheia", () -> fullscreen ? "Ligada" : "Desligada", d -> setFullscreen(!fullscreen));
         menu.value("Tamanho da janela",
                 () -> windowScale + "x (" + Runtime.SCREEN_W * windowScale + "x" + Runtime.SCREEN_H * windowScale + ")",
@@ -244,11 +259,17 @@ final class Screen extends JPanel implements Input.Listener {
 
     // ---------------------------------------------------------------- video
 
+    private static BufferedImage newFrame() {
+        return new BufferedImage(Runtime.SCREEN_W, Runtime.SCREEN_H, BufferedImage.TYPE_INT_RGB);
+    }
+
     void present(BufferedImage src) {
-        synchronized (front) {
-            Graphics g = front.getGraphics();
-            g.drawImage(src, 0, 0, null);
-            g.dispose();
+        back.setData(src.getRaster());
+        synchronized (swapLock) {
+            BufferedImage t = ready;
+            ready = back;
+            back = t;
+            fresh = true;
         }
         repaint();
     }
@@ -260,9 +281,17 @@ final class Screen extends JPanel implements Input.Listener {
         int w = getWidth();
         int h = getHeight();
         Rectangle pic;
-        synchronized (front) {
-            pic = upscaler.draw(g, front, filter, background, w, h);
+        synchronized (swapLock) {
+            if (fresh) {
+                BufferedImage t = shown;
+                shown = ready;
+                ready = t;
+                fresh = false;
+            }
         }
+        long p0 = System.nanoTime();
+        pic = upscaler.draw(g, shown, filter, background, w, h);
+        paintStats(System.nanoTime() - p0);
         if (legend && !menu.isOpen()) {
             drawLegend(g, pic);
         }
@@ -271,6 +300,28 @@ final class Screen extends JPanel implements Input.Listener {
         }
         if (toast != null) {
             drawToast(g);
+        }
+    }
+
+    private static final boolean STATS = Boolean.getBoolean("drpc.stats");
+    private int paints;
+    private long paintNanos;
+    private long paintStart;
+
+    private void paintStats(long nanos) {
+        if (!STATS) {
+            return;
+        }
+        long now = System.nanoTime();
+        if (paintStart == 0) {
+            paintStart = now;
+        }
+        paintNanos += nanos;
+        if (++paints % 120 == 0) {
+            System.out.printf("[stats] window %.1f fps, scale %.2f ms%n", paints * 1e9 / (now - paintStart), paintNanos / 1e6 / paints);
+            paints = 0;
+            paintNanos = 0;
+            paintStart = now;
         }
     }
 

@@ -49,6 +49,24 @@ public final class Runtime {
         return openResource(name);
     }
 
+    static ClassLoader gameClassLoader() {
+        return gameLoader;
+    }
+
+    /** Recorder for the screen graphics while frame interpolation is on, else null. */
+    public static javax.microedition.lcdui.DrawList.Sink recordingSink() {
+        return Interpolator.enabled() ? Interpolator.sink() : null;
+    }
+
+    /** A GameCanvas finished a frame (flushGraphics). */
+    public static void frameDone(BufferedImage buffer) {
+        if (Interpolator.enabled()) {
+            Interpolator.commit(buffer);
+        } else {
+            present(buffer);
+        }
+    }
+
     public static Path saveDir() {
         return saveDir;
     }

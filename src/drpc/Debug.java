@@ -12,7 +12,8 @@ import javax.imageio.ImageIO;
  * Optional debug helpers, enabled with system properties:
  *  -Ddrpc.dump=dir        saves the presented frame as PNG once per second
  *  -Ddrpc.keys=script     plays phone keys, e.g. "4000:-5,1500:p-5" (delay ms : key code; p = from gamepad,
- *                         -1000 = options menu)
+ *                         -1000 = options menu; optional third field = hold time in ms)
+ *  -Ddrpc.burst=start:count  with drpc.dump, saves every presented frame from start ms on
  */
 final class Debug {
 
@@ -24,6 +25,7 @@ final class Debug {
     }
 
     static void onPresent(BufferedImage frame) {
+        burst(frame);
         if (DUMP == null) {
             return;
         }
@@ -59,6 +61,26 @@ final class Debug {
         }).start();
     }
 
+    private static final String BURST = System.getProperty("drpc.burst"); // "startMs:count"
+    private static final long START = System.currentTimeMillis();
+    private static int burstIndex;
+
+    /** Saves every presented frame (not one per second) inside a time window, to check motion. */
+    private static void burst(BufferedImage frame) {
+        if (BURST == null || DUMP == null) {
+            return;
+        }
+        String[] b = BURST.split(":");
+        if (System.currentTimeMillis() - START < Long.parseLong(b[0]) || burstIndex >= Integer.parseInt(b[1])) {
+            return;
+        }
+        try {
+            ImageIO.write(frame, "png", DUMP.resolve(String.format("burst%03d.png", burstIndex++)).toFile());
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
     static void startKeyScript() {
         String script = System.getProperty("drpc.keys");
         if (script == null || script.isBlank()) {
@@ -75,7 +97,7 @@ final class Debug {
                     Input.Device dev = pad ? Input.Device.GAMEPAD : Input.Device.KEYBOARD;
                     System.out.println("[debug] key " + code + (pad ? " (pad)" : ""));
                     Runtime.runOnEventThread(() -> Input.press(code, dev));
-                    Thread.sleep(120);
+                    Thread.sleep(p.length > 2 ? Long.parseLong(p[2]) : 120); // optional hold time
                     Runtime.runOnEventThread(() -> Input.release(code));
                 }
             } catch (InterruptedException ignored) {

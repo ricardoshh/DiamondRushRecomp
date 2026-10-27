@@ -22,6 +22,8 @@ final class Settings {
             "video.background=blur",
             "# video.windowScale: window size multiplier when not fullscreen (0 = largest that fits)",
             "video.windowScale=0",
+            "# video.fps: 20 = original (no interpolation) | 60 | 120 | 144 | 240",
+            "video.fps=60",
             "",
             "# game.speed: percent of the original 20 ticks/s (50 75 100 125 150 200)",
             "game.speed=100",

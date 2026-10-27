@@ -92,6 +92,13 @@ public class Image {
         return dst;
     }
 
+    /** Immutable snapshot of this image's current pixels (used by DrawList). */
+    Image frozenCopy() {
+        BufferedImage copy = new BufferedImage(image.getWidth(), image.getHeight(), image.getType());
+        copy.setData(image.getRaster());
+        return new Image(copy, false);
+    }
+
     public Graphics getGraphics() {
         if (!mutable) {
             throw new IllegalStateException("immutable image");

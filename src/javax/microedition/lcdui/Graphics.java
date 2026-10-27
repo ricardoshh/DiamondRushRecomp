@@ -39,6 +39,7 @@ public class Graphics {
     private int clipH;
     private int color;
     private int strokeStyle = SOLID;
+    private DrawList.Sink sink; // non-null while the frame interpolator records this screen
 
     Graphics(Graphics2D g, int w, int h) {
         this.g = g;
@@ -59,6 +60,28 @@ public class Graphics {
     /** Creates a Graphics drawing into a BufferedImage (used by Image and GameCanvas). */
     public static Graphics forImage(BufferedImage img) {
         return new Graphics(img.createGraphics(), img.getWidth(), img.getHeight());
+    }
+
+    /** Like forImage, also recording every primitive into sink (screen graphics of a GameCanvas). */
+    public static Graphics forImage(BufferedImage img, DrawList.Sink sink) {
+        Graphics g = forImage(img);
+        g.sink = sink;
+        return g;
+    }
+
+    private DrawList.Cmd rec(int op, int x, int y, int... a) {
+        DrawList.Cmd c = new DrawList.Cmd();
+        c.op = op;
+        c.clipX = clipX;
+        c.clipY = clipY;
+        c.clipW = clipW;
+        c.clipH = clipH;
+        c.color = color;
+        c.x = x;
+        c.y = y;
+        c.a = a;
+        sink.add(c);
+        return c;
     }
 
     // ---------------------------------------------------------------- state
@@ -156,44 +179,77 @@ public class Graphics {
     // ---------------------------------------------------------------- primitives
 
     public void drawLine(int x1, int y1, int x2, int y2) {
+        if (sink != null) {
+            rec(DrawList.LINE, x1 + tx, y1 + ty, x2 + tx, y2 + ty);
+        }
         g.drawLine(x1 + tx, y1 + ty, x2 + tx, y2 + ty);
     }
 
     public void fillRect(int x, int y, int w, int h) {
+        if (sink != null) {
+            rec(DrawList.FILL_RECT, x + tx, y + ty, w, h);
+        }
         if (w > 0 && h > 0) {
             g.fillRect(x + tx, y + ty, w, h);
         }
     }
 
     public void drawRect(int x, int y, int w, int h) {
+        if (sink != null) {
+            rec(DrawList.DRAW_RECT, x + tx, y + ty, w, h);
+        }
         if (w >= 0 && h >= 0) {
             g.drawRect(x + tx, y + ty, w, h);
         }
     }
 
     public void drawRoundRect(int x, int y, int w, int h, int aw, int ah) {
+        if (sink != null) {
+            rec(DrawList.DRAW_ROUND_RECT, x + tx, y + ty, w, h, aw, ah);
+        }
         g.drawRoundRect(x + tx, y + ty, w, h, aw, ah);
     }
 
     public void fillRoundRect(int x, int y, int w, int h, int aw, int ah) {
+        if (sink != null) {
+            rec(DrawList.FILL_ROUND_RECT, x + tx, y + ty, w, h, aw, ah);
+        }
         g.fillRoundRect(x + tx, y + ty, w, h, aw, ah);
     }
 
     public void drawArc(int x, int y, int w, int h, int start, int arc) {
+        if (sink != null) {
+            rec(DrawList.DRAW_ARC, x + tx, y + ty, w, h, start, arc);
+        }
         g.drawArc(x + tx, y + ty, w, h, start, arc);
     }
 
     public void fillArc(int x, int y, int w, int h, int start, int arc) {
+        if (sink != null) {
+            rec(DrawList.FILL_ARC, x + tx, y + ty, w, h, start, arc);
+        }
         g.fillArc(x + tx, y + ty, w, h, start, arc);
     }
 
     public void fillTriangle(int x1, int y1, int x2, int y2, int x3, int y3) {
+        if (sink != null) {
+            rec(DrawList.TRIANGLE, x1 + tx, y1 + ty, x2 + tx, y2 + ty, x3 + tx, y3 + ty);
+        }
         g.fillPolygon(new int[] {x1 + tx, x2 + tx, x3 + tx}, new int[] {y1 + ty, y2 + ty, y3 + ty}, 3);
     }
 
     public void drawRGB(int[] rgb, int offset, int scanlength, int x, int y, int w, int h, boolean alpha) {
         if (w <= 0 || h <= 0) {
             return;
+        }
+        if (sink != null) {
+            int[] copy = new int[w * h];
+            for (int row = 0; row < h; row++) {
+                System.arraycopy(rgb, offset + row * scanlength, copy, row * w, w);
+            }
+            DrawList.Cmd c = rec(DrawList.RGB, x + tx, y + ty, w, h);
+            c.rgb = copy;
+            c.alpha = alpha;
         }
         BufferedImage tmp = new BufferedImage(w, h, alpha ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB);
         tmp.setRGB(0, 0, w, h, rgb, offset, scanlength);
@@ -208,6 +264,9 @@ public class Graphics {
         int h = src.getHeight();
         x = anchorX(x, w, anchor);
         y = anchorY(y, h, anchor);
+        if (sink != null) {
+            rec(DrawList.REGION, x + tx, y + ty, 0, 0, w, h, Sprite.TRANS_NONE).source = img;
+        }
         g.drawImage(src, x + tx, y + ty, null);
     }
 
@@ -221,6 +280,9 @@ public class Graphics {
         int dh = swap ? w : h;
         dx = anchorX(dx, dw, anchor) + tx;
         dy = anchorY(dy, dh, anchor) + ty;
+        if (sink != null) {
+            rec(DrawList.REGION, dx, dy, sx, sy, w, h, transform).source = img;
+        }
 
         if (transform == Sprite.TRANS_NONE) {
             g.drawImage(src, dx, dy, dx + w, dy + h, sx, sy, sx + w, sy + h, null);

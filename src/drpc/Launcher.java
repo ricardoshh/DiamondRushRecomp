@@ -83,6 +83,8 @@ public final class Launcher {
         screen.setGameJar(jar);
         Runtime.init(loader, props, screen, saves);
         Gamepad.start(settings, screen);
+        Interpolator.configure((int) settings.getFloat("video.fps", 60));
+        Interpolator.startPresenter();
 
         MIDlet midlet = (MIDlet) loader.loadClass(mainClass).getDeclaredConstructor().newInstance();
         screen.setOnClose(() -> {

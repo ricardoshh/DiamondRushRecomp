@@ -34,12 +34,13 @@ public abstract class GameCanvas extends Canvas {
     }
 
     protected Graphics getGraphics() {
-        return Graphics.forImage(buffer);
+        javax.microedition.lcdui.DrawList.Sink sink = Runtime.recordingSink();
+        return sink == null ? Graphics.forImage(buffer) : Graphics.forImage(buffer, sink);
     }
 
     public void flushGraphics() {
         if (isShown()) {
-            Runtime.present(buffer);
+            Runtime.frameDone(buffer);
         }
     }
 
